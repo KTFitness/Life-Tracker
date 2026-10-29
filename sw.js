@@ -1,5 +1,9 @@
-const CACHE_NAME = "life-tracker-v4";
-const ASSETS = ["./", "./index.html", "./app.bundle.js", "./manifest.json"];
+const CACHE_NAME = "life-tracker-v5";
+// Everything the app needs to open with no internet, including React and Recharts, which used to load from a CDN.
+const ASSETS = [
+  "./", "./index.html", "./app.bundle.js", "./manifest.json", "./icon-192.png", "./icon-512.png",
+  "./vendor/react.production.min.js", "./vendor/react-dom.production.min.js", "./vendor/prop-types.min.js", "./vendor/Recharts.js",
+];
 
 self.addEventListener("install", (event) => {
   event.waitUntil(
@@ -33,13 +37,21 @@ self.addEventListener("fetch", (event) => {
   const url = new URL(event.request.url);
   if (url.origin !== self.location.origin) return; // not ours — don't touch it
 
+  // Network first, so a new version shows as soon as it is online. If the network fails, or takes
+  // more than 4 seconds (weak signal), fall back to the saved copy so the app still opens.
+  const fromCache = () => caches.match(event.request, { ignoreSearch: true }).then((cached) => cached || caches.match("./index.html"));
   event.respondWith(
-    fetch(event.request, { cache: "no-store" })
-      .then((response) => {
-        const copy = response.clone();
-        caches.open(CACHE_NAME).then((cache) => cache.put(event.request, copy)).catch(() => {});
-        return response;
-      })
-      .catch(() => caches.match(event.request).then((cached) => cached || caches.match("./index.html")))
+    new Promise((resolve) => {
+      let settled = false;
+      const timer = setTimeout(() => { if (!settled) fromCache().then((c) => { if (c && !settled) { settled = true; resolve(c); } }); }, 4000);
+      fetch(event.request, { cache: "no-store" })
+        .then((response) => {
+          if (settled) return response;
+          settled = true; clearTimeout(timer);
+          if (response.ok) { const copy = response.clone(); caches.open(CACHE_NAME).then((cache) => cache.put(event.request, copy)).catch(() => {}); }
+          resolve(response);
+        })
+        .catch(() => { if (settled) return; settled = true; clearTimeout(timer); fromCache().then(resolve); });
+    })
   );
 });

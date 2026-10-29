@@ -1524,7 +1524,7 @@ Notes: ${notes || "(none)"}`;
       tx.onerror = () => reject(tx.error);
     }));
   }
-  var APP_VERSION = "20 (29 Oct 2026: ZIIP rotation can be pushed along when a night is missed)";
+  var APP_VERSION = "21 (29 Oct 2026: works offline)";
   var CLEANING_START = "2026-10-21";
   var CLEANING_WEEK_A_ANCHOR = "2026-10-23";
   var CLEANING_GROUT_MONTHS = [2, 5, 8, 11];
