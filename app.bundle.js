@@ -1528,12 +1528,9 @@ Notes: ${notes || "(none)"}`;
       tx.onerror = () => reject(tx.error);
     }));
   }
-  var APP_VERSION = "22 (1 Nov 2026: rolled-over items say which day they are from)";
-  var CLEANING_START = "2026-10-21";
-  var CLEANING_WEEK_A_ANCHOR = "2026-10-23";
+  var APP_VERSION = "23 (1 Nov 2026: cleaning is now tick-off lists by frequency, out of Glance and Week)";
   var CLEANING_GROUT_MONTHS = [2, 5, 8, 11];
   var CLEANING_NON_GROUT_MONTHS = [1, 3, 4, 6, 7, 9, 10, 12];
-  var CLEANING_GROUT_SATURDAY_OVERRIDES = { "2026-11": "2026-11-14" };
   var cleanNth = (dow, from, to, extra = {}) => ({ type: "nth", dow, from, to, ...extra });
   var CLEANING_TASKS = [
     // Monday: kitchen
@@ -1651,122 +1648,6 @@ Notes: ${notes || "(none)"}`;
     for (const r of task.rules) if (r.from <= d) cur = r;
     return cur;
   }
-  function cleaningCtx(cleaning) {
-    return { done: cleaning.done, away: cleaning.away, moves: cleaning.moves, tasks: cleaning.allTasks };
-  }
-  function cleaningIsRoll(task) {
-    return task.roll !== false;
-  }
-  function cleaningGroutSaturday(year, month) {
-    const key = `${year}-${String(month).padStart(2, "0")}`;
-    if (CLEANING_GROUT_SATURDAY_OVERRIDES[key]) return CLEANING_GROUT_SATURDAY_OVERRIDES[key];
-    if (!CLEANING_GROUT_MONTHS.includes(month)) return null;
-    for (let day = 22; day <= 28; day++) {
-      const iso = `${key}-${String(day).padStart(2, "0")}`;
-      if (dayOfWeekISO(iso) === 6) return iso;
-    }
-    return null;
-  }
-  function cleaningRuleMatches(rule, d) {
-    const dow = dayOfWeekISO(d);
-    if (rule.type === "daily") return true;
-    if (rule.type === "weekday") return rule.dow.includes(dow);
-    if (rule.type === "fortnight") {
-      if (dow !== rule.dow) return false;
-      const weekIdx = Math.floor(daysBetween(CLEANING_WEEK_A_ANCHOR, d) / 7);
-      return (weekIdx % 2 + 2) % 2 === (rule.week === "A" ? 0 : 1);
-    }
-    if (rule.type === "nth") {
-      const base = rule.offset ? addDaysISO(d, -rule.offset) : d;
-      const [, bm, bd] = base.split("-").map(Number);
-      return dayOfWeekISO(base) === rule.dow && bd >= rule.from && bd <= rule.to && (!rule.months || rule.months.includes(bm));
-    }
-    if (rule.type === "interval") {
-      const diff = daysBetween(rule.anchor, d);
-      return diff >= 0 && diff % rule.days === 0;
-    }
-    if (rule.type === "imonths") {
-      const [yy, mm, dd] = d.split("-").map(Number);
-      const [ay, am, ad] = rule.anchor.split("-").map(Number);
-      const diff = (yy - ay) * 12 + (mm - am);
-      return diff >= 0 && diff % rule.every === 0 && dd === Math.min(ad, new Date(yy, mm, 0).getDate());
-    }
-    if (rule.type === "monthday") {
-      const [yy, mm, dd] = d.split("-").map(Number);
-      if (rule.months && !rule.months.includes(mm)) return false;
-      return dd === Math.min(rule.day, new Date(yy, mm, 0).getDate());
-    }
-    if (rule.type === "once") return d === rule.date;
-    if (rule.type === "grout") {
-      const [y, m] = d.split("-").map(Number);
-      for (const [yy, mm] of [[y, m], [m === 1 ? y - 1 : y, m === 1 ? 12 : m - 1]]) {
-        const sat = cleaningGroutSaturday(yy, mm);
-        if (sat && d === (rule.day === 1 ? sat : addDaysISO(sat, 1))) return true;
-      }
-      return false;
-    }
-    return false;
-  }
-  function cleaningScheduledOn(task, d, moves) {
-    if (task.hiddenFrom && d >= task.hiddenFrom) return false;
-    const rv = cleaningRuleAt(task, d);
-    let on = rv ? cleaningRuleMatches(rv.rule, d) || (rv.ruleAlt ? cleaningRuleMatches(rv.ruleAlt, d) : false) : false;
-    for (const m of moves) {
-      if (m.id !== task.id) continue;
-      if (m.from === d) on = false;
-      if (m.to === d) on = true;
-    }
-    return on;
-  }
-  function cleaningUpcomingJobs(fromDate, days, ctx) {
-    const moves = [...CLEANING_BUILTIN_MOVES, ...ctx.moves || []];
-    const out = [];
-    for (let i = 0; i < days; i++) {
-      const d = addDaysISO(fromDate, i);
-      if (d < CLEANING_START || cleaningIsAway(d, ctx.away)) continue;
-      (ctx.tasks || cleaningBuildTasks(null)).forEach((task) => {
-        const rv = cleaningRuleAt(task, d);
-        if (!rv || rv.rule.type === "daily") return;
-        if (!cleaningScheduledOn(task, d, moves)) return;
-        const key = task.id + "@" + d;
-        if ((ctx.done || {})[key]) return;
-        out.push({ task, scheduled: d, key });
-      });
-    }
-    return out;
-  }
-  function cleaningIsAway(d, away) {
-    return (away || []).some((a) => a && d >= a.from && d <= a.to);
-  }
-  function cleaningJobsForDate(d, ctx) {
-    if (d < CLEANING_START || cleaningIsAway(d, ctx.away)) return [];
-    const moves = [...CLEANING_BUILTIN_MOVES, ...ctx.moves || []];
-    const doneMap = ctx.done || {};
-    const out = [];
-    (ctx.tasks || cleaningBuildTasks(null)).forEach((task) => {
-      let sched = null;
-      if (d > (ctx.today || todayISO())) {
-        if (cleaningScheduledOn(task, d, moves)) sched = d;
-      } else if (!cleaningIsRoll(task)) {
-        if (cleaningScheduledOn(task, d, moves)) sched = d;
-      } else {
-        for (let i = 0; i < 100; i++) {
-          const x = addDaysISO(d, -i);
-          if (x < CLEANING_START) break;
-          if (cleaningScheduledOn(task, x, moves)) {
-            sched = x;
-            break;
-          }
-        }
-      }
-      if (!sched) return;
-      const key = task.id + "@" + sched;
-      const doneOn = doneMap[key];
-      if (doneOn && doneOn < d && (doneOn >= sched || d > sched)) return;
-      out.push({ task, scheduled: sched, key, overdue: sched < d, done: !!doneOn, early: !!doneOn && doneOn < sched, doneOn });
-    });
-    return out;
-  }
   var ALL_STORAGE_KEYS = [
     "weight-logs",
     "segmental-muscle-logs",
@@ -1818,7 +1699,8 @@ Notes: ${notes || "(none)"}`;
     "cleaning-done",
     "cleaning-away",
     "cleaning-moves",
-    "cleaning-jobs"
+    "cleaning-jobs",
+    "cleaning-ticks"
   ];
   async function storageRead(key, attempts = 3) {
     let lastError = null;
@@ -2192,6 +2074,7 @@ Notes: ${notes || "(none)"}`;
     const [cleaningDone, setCleaningDone] = useState({});
     const [cleaningAway, setCleaningAway] = useState(CLEANING_DEFAULT_AWAY);
     const [cleaningMoves, setCleaningMoves] = useState([]);
+    const [cleaningTicks, setCleaningTicks] = useState({});
     const [cleaningJobsCfg, setCleaningJobsCfg] = useState({ custom: [], edits: {}, hidden: {} });
     const [skinDayStatus, setSkinDayStatus] = useState({});
     const [recurringDone, setRecurringDone] = useState({});
@@ -2277,6 +2160,7 @@ Notes: ${notes || "(none)"}`;
           const cleaningDoneR = await readOrMissing("cleaning-done");
           const cleaningAwayR = await readOrMissing("cleaning-away");
           const cleaningMovesR = await readOrMissing("cleaning-moves");
+          const cleaningTicksR = await readOrMissing("cleaning-ticks");
           const cleaningJobsR = await readOrMissing("cleaning-jobs");
           const skinDayStatusR = await readOrMissing("skin-day-status");
           const recurringDoneR = await readOrMissing("recurring-done");
@@ -2350,6 +2234,7 @@ Notes: ${notes || "(none)"}`;
           setCleaningDone(cleaningDoneR.found && cleaningDoneR.value && typeof cleaningDoneR.value === "object" ? cleaningDoneR.value : {});
           setCleaningAway(cleaningAwayR.found && Array.isArray(cleaningAwayR.value) ? JSON.stringify(cleaningAwayR.value) === JSON.stringify(CLEANING_OLD_DEFAULT_AWAY) ? CLEANING_DEFAULT_AWAY : cleaningAwayR.value : CLEANING_DEFAULT_AWAY);
           setCleaningMoves(cleaningMovesR.found && Array.isArray(cleaningMovesR.value) ? cleaningMovesR.value : []);
+          setCleaningTicks(cleaningTicksR.found && cleaningTicksR.value && typeof cleaningTicksR.value === "object" ? cleaningTicksR.value : {});
           setCleaningJobsCfg(cleaningJobsR.found && cleaningJobsR.value && typeof cleaningJobsR.value === "object" ? { custom: Array.isArray(cleaningJobsR.value.custom) ? cleaningJobsR.value.custom : [], edits: cleaningJobsR.value.edits || {}, hidden: cleaningJobsR.value.hidden || {} } : { custom: [], edits: {}, hidden: {} });
           setSkinDayStatus(skinDayStatusR.found ? skinDayStatusR.value : {});
           setRecurringDone(recurringDoneR.found ? recurringDoneR.value : {});
@@ -2554,10 +2439,11 @@ Notes: ${notes || "(none)"}`;
     usePersist(loaded, persist, "appt-attended", apptAttended);
     usePersist(loaded, persist, "general-notes", generalNotes);
     usePersist(loaded, persist, "hidden-tabs", hiddenTabs);
-    const cleaning = { done: cleaningDone, setDone: setCleaningDone, away: cleaningAway, setAway: setCleaningAway, moves: cleaningMoves, setMoves: setCleaningMoves, jobsCfg: cleaningJobsCfg, setJobsCfg: setCleaningJobsCfg, allTasks: cleaningBuildTasks(cleaningJobsCfg) };
+    const cleaning = { done: cleaningDone, setDone: setCleaningDone, away: cleaningAway, setAway: setCleaningAway, moves: cleaningMoves, setMoves: setCleaningMoves, ticks: cleaningTicks, setTicks: setCleaningTicks, jobsCfg: cleaningJobsCfg, setJobsCfg: setCleaningJobsCfg, allTasks: cleaningBuildTasks(cleaningJobsCfg) };
     usePersist(loaded, persist, "cleaning-done", cleaningDone);
     usePersist(loaded, persist, "cleaning-away", cleaningAway);
     usePersist(loaded, persist, "cleaning-moves", cleaningMoves);
+    usePersist(loaded, persist, "cleaning-ticks", cleaningTicks);
     usePersist(loaded, persist, "cleaning-jobs", cleaningJobsCfg);
     usePersist(loaded, persist, "skin-day-status", skinDayStatus);
     usePersist(loaded, persist, "recurring-done", recurringDone);
@@ -3129,18 +3015,7 @@ Notes: ${notes || "(none)"}`;
         style: { background: "none", border: "none", cursor: "pointer", color: skinStatusToday === "missed" ? COLORS.danger : COLORS.inkSoft, fontSize: skinStatusToday === "missed" ? 22 : 18, fontWeight: 900, padding: "0 2px", lineHeight: 1 }
       },
       "\u2715"
-    ))), ziipToday && !ziipToday.rest ? /* @__PURE__ */ React.createElement("div", null, /* @__PURE__ */ React.createElement("div", { style: { fontSize: 11.5, color: COLORS.inkSoft, marginBottom: 2 } }, "ZIIP Day ", ziipDayIdx + 1), ziipToday.t.map(([n, m]) => /* @__PURE__ */ React.createElement("div", { key: n, style: { display: "flex", alignItems: "center", gap: 8, padding: "3px 0" } }, /* @__PURE__ */ React.createElement("input", { type: "checkbox", checked: !!(ziipDone[viewDate] || {})[n], onChange: () => toggleZiipToday(n), style: { accentColor: COLORS.clay, width: 16, height: 16, flexShrink: 0 } }), /* @__PURE__ */ React.createElement("div", { style: { fontSize: 14, color: COLORS.ink } }, n, " ", /* @__PURE__ */ React.createElement("span", { style: { color: COLORS.inkSoft, fontSize: 12.5 } }, "(", m, " min)")))), isZiipPushed && /* @__PURE__ */ React.createElement("div", { style: { marginTop: 6, fontSize: 12, color: COLORS.clay } }, "Pushed along: this day's treatments move to ", fmtDate(addDaysISO(viewDate, 1)), " and the rest of the rotation shifts by one.", " ", /* @__PURE__ */ React.createElement("button", { onClick: () => setZiipPushed(false), style: { background: "none", border: "none", color: COLORS.danger, cursor: "pointer", fontSize: 12, padding: 0 } }, "undo")), !isZiipPushed && canPushZiip && /* @__PURE__ */ React.createElement("div", { style: { marginTop: 6 } }, /* @__PURE__ */ React.createElement("button", { onClick: () => setZiipPushed(true), style: { background: "none", border: "none", color: COLORS.clay, cursor: "pointer", fontSize: 12.5, fontWeight: 600, padding: 0 } }, "Missed it? Push the rotation along"))) : ziipToday === null ? /* @__PURE__ */ React.createElement("div", { style: { fontSize: 14, color: COLORS.inkSoft } }, "ZIIP: outside the current 30-day plan.") : /* @__PURE__ */ React.createElement("div", { style: { fontSize: 14, color: COLORS.inkSoft } }, ziipToday.away ? "ZIIP: away, skipped (the rotation carries on when you are back)" : "ZIIP: rest day"), carriedOverZiip.length > 0 && /* @__PURE__ */ React.createElement("div", { style: { marginTop: 8, paddingTop: 8, borderTop: `1px solid ${COLORS.line}` } }, /* @__PURE__ */ React.createElement("div", { style: { fontSize: 11.5, color: COLORS.clay, fontWeight: 700, marginBottom: 2 } }, "Still owed from earlier"), carriedOverZiip.map((c) => /* @__PURE__ */ React.createElement("div", { key: c.fromDate + "|" + c.name, style: { display: "flex", alignItems: "center", gap: 8, padding: "3px 0" } }, /* @__PURE__ */ React.createElement("input", { type: "checkbox", checked: false, onChange: () => toggleZiipCarried(c.fromDate, c.name), style: { accentColor: COLORS.clay, width: 16, height: 16, flexShrink: 0 } }), /* @__PURE__ */ React.createElement("div", { style: { fontSize: 14, color: COLORS.ink } }, c.name, " ", /* @__PURE__ */ React.createElement("span", { style: { color: COLORS.inkSoft, fontSize: 12.5 } }, "(", c.mins, " min)"), /* @__PURE__ */ React.createElement("span", { style: { fontSize: 11.5, color: COLORS.clay, marginLeft: 6 } }, "rolled over from ", fmtDate(c.fromDate)))))), skinExtrasForDate(viewDate, isRetreatDay).map((x) => /* @__PURE__ */ React.createElement("div", { key: x.name, style: { marginTop: 8, paddingTop: 8, borderTop: `1px solid ${COLORS.line}`, display: "flex", alignItems: "center", gap: 8 } }, /* @__PURE__ */ React.createElement("input", { type: "checkbox", checked: !!(ziipDone[viewDate] || {})[x.name], onChange: () => toggleZiipToday(x.name), style: { accentColor: COLORS.clay, width: 16, height: 16 } }), /* @__PURE__ */ React.createElement("span", { style: { fontSize: 13.5, color: COLORS.ink } }, x.name, " ", /* @__PURE__ */ React.createElement("span", { style: { color: COLORS.inkSoft, fontSize: 12.5 } }, "(", x.note, ")")))), isNonZiipDay && !isRetreatDay && /* @__PURE__ */ React.createElement("div", { style: { marginTop: 8, paddingTop: 8, borderTop: `1px solid ${COLORS.line}`, display: "flex", alignItems: "center", gap: 8 } }, /* @__PURE__ */ React.createElement("input", { type: "checkbox", checked: ledMaskDoneToday, onChange: toggleLedMask, style: { accentColor: COLORS.clay, width: 16, height: 16 } }), /* @__PURE__ */ React.createElement("span", { style: { fontSize: 13.5, color: COLORS.ink } }, "LED mask")), !isRetreatDay && (hasExfoliatingCleanseAm || dow === 4) && /* @__PURE__ */ React.createElement("div", { style: { marginTop: 8, paddingTop: 8, borderTop: `1px solid ${COLORS.line}` } }, dow === 4 && /* @__PURE__ */ React.createElement(Pill, { tone: "clay" }, isDermaplaneNight(viewDate) ? "Dermaplaning night" : "Exfoliation night"), hasExfoliatingCleanseAm && /* @__PURE__ */ React.createElement("div", { style: { fontSize: 13.5, color: COLORS.ink, marginTop: 4 } }, "AM: Exfoliating cleanse day"), dow === 4 && /* @__PURE__ */ React.createElement("div", { style: { fontSize: 13.5, color: COLORS.ink, marginTop: 4 } }, isDermaplaneNight(viewDate) ? "PM: Dermaplaning night (replaces exfoliation)" : "PM: Exfoliation night")), isToday && /* @__PURE__ */ React.createElement("div", { style: { marginTop: 8 } }, /* @__PURE__ */ React.createElement("button", { onClick: () => setTab("skin"), style: { background: "none", border: "none", color: COLORS.green, fontSize: 13, fontWeight: 600, cursor: "pointer", padding: 0 } }, "Open full skin checklist \u2192"))), (() => {
-      const cJobs = cleaningJobsForDate(viewDate, cleaningCtx(cleaning));
-      if (!cJobs.length && viewDate !== today) return null;
-      const allDone = cJobs.length > 0 && cJobs.every((j) => j.done);
-      const toggleJob = (job) => {
-        const next = { ...cleaning.done };
-        if (job.done) delete next[job.key];
-        else next[job.key] = viewDate;
-        cleaning.setDone(next);
-      };
-      return /* @__PURE__ */ React.createElement(Card, { style: allDone ? { borderColor: COLORS.green, background: "#A9D6A9" } : {} }, /* @__PURE__ */ React.createElement(SectionTitle, { sub: cJobs.length ? `${cleaningDoneCount(cJobs)} of ${cJobs.length} done` : void 0 }, "Cleaning"), cJobs.length === 0 && /* @__PURE__ */ React.createElement("div", { style: { fontSize: 13.5, color: COLORS.inkSoft } }, viewDate < CLEANING_START ? `Starts ${fmtDate(CLEANING_START)}.` : "Nothing scheduled today."), cJobs.map((job) => /* @__PURE__ */ React.createElement("div", { key: job.key, style: { display: "flex", alignItems: "center", gap: 8, padding: "5px 6px", borderRadius: 6, background: job.done ? "#A9D6A9" : "transparent" } }, /* @__PURE__ */ React.createElement("input", { type: "checkbox", checked: job.done, onChange: () => toggleJob(job), style: { accentColor: COLORS.clay, width: 16, height: 16, flexShrink: 0 } }), /* @__PURE__ */ React.createElement("div", { style: { flex: 1, fontSize: 14, color: job.done ? COLORS.inkSoft : COLORS.ink, textDecoration: job.done ? "line-through" : "none" } }, job.task.text, job.overdue && /* @__PURE__ */ React.createElement("span", { style: { fontSize: 11.5, color: COLORS.clay, marginLeft: 6 } }, "rolled over from ", fmtDate(job.scheduled)), job.early && /* @__PURE__ */ React.createElement("span", { style: { fontSize: 11.5, color: COLORS.green, marginLeft: 6 } }, "done early on ", fmtDate(job.doneOn))))), viewDate === today && /* @__PURE__ */ React.createElement(CleaningEarlyPicker, { today, cleaning }));
-    })(), dueRecurring.length > 0 && /* @__PURE__ */ React.createElement(Card, { style: dueRecurring.every((t) => recurringDoneIds.includes(t.id)) ? { borderColor: COLORS.green, background: "#A9D6A9" } : {} }, /* @__PURE__ */ React.createElement(SectionTitle, null, "Recurring tasks"), dueRecurring.map((t) => {
+    ))), ziipToday && !ziipToday.rest ? /* @__PURE__ */ React.createElement("div", null, /* @__PURE__ */ React.createElement("div", { style: { fontSize: 11.5, color: COLORS.inkSoft, marginBottom: 2 } }, "ZIIP Day ", ziipDayIdx + 1), ziipToday.t.map(([n, m]) => /* @__PURE__ */ React.createElement("div", { key: n, style: { display: "flex", alignItems: "center", gap: 8, padding: "3px 0" } }, /* @__PURE__ */ React.createElement("input", { type: "checkbox", checked: !!(ziipDone[viewDate] || {})[n], onChange: () => toggleZiipToday(n), style: { accentColor: COLORS.clay, width: 16, height: 16, flexShrink: 0 } }), /* @__PURE__ */ React.createElement("div", { style: { fontSize: 14, color: COLORS.ink } }, n, " ", /* @__PURE__ */ React.createElement("span", { style: { color: COLORS.inkSoft, fontSize: 12.5 } }, "(", m, " min)")))), isZiipPushed && /* @__PURE__ */ React.createElement("div", { style: { marginTop: 6, fontSize: 12, color: COLORS.clay } }, "Pushed along: this day's treatments move to ", fmtDate(addDaysISO(viewDate, 1)), " and the rest of the rotation shifts by one.", " ", /* @__PURE__ */ React.createElement("button", { onClick: () => setZiipPushed(false), style: { background: "none", border: "none", color: COLORS.danger, cursor: "pointer", fontSize: 12, padding: 0 } }, "undo")), !isZiipPushed && canPushZiip && /* @__PURE__ */ React.createElement("div", { style: { marginTop: 6 } }, /* @__PURE__ */ React.createElement("button", { onClick: () => setZiipPushed(true), style: { background: "none", border: "none", color: COLORS.clay, cursor: "pointer", fontSize: 12.5, fontWeight: 600, padding: 0 } }, "Missed it? Push the rotation along"))) : ziipToday === null ? /* @__PURE__ */ React.createElement("div", { style: { fontSize: 14, color: COLORS.inkSoft } }, "ZIIP: outside the current 30-day plan.") : /* @__PURE__ */ React.createElement("div", { style: { fontSize: 14, color: COLORS.inkSoft } }, ziipToday.away ? "ZIIP: away, skipped (the rotation carries on when you are back)" : "ZIIP: rest day"), carriedOverZiip.length > 0 && /* @__PURE__ */ React.createElement("div", { style: { marginTop: 8, paddingTop: 8, borderTop: `1px solid ${COLORS.line}` } }, /* @__PURE__ */ React.createElement("div", { style: { fontSize: 11.5, color: COLORS.clay, fontWeight: 700, marginBottom: 2 } }, "Still owed from earlier"), carriedOverZiip.map((c) => /* @__PURE__ */ React.createElement("div", { key: c.fromDate + "|" + c.name, style: { display: "flex", alignItems: "center", gap: 8, padding: "3px 0" } }, /* @__PURE__ */ React.createElement("input", { type: "checkbox", checked: false, onChange: () => toggleZiipCarried(c.fromDate, c.name), style: { accentColor: COLORS.clay, width: 16, height: 16, flexShrink: 0 } }), /* @__PURE__ */ React.createElement("div", { style: { fontSize: 14, color: COLORS.ink } }, c.name, " ", /* @__PURE__ */ React.createElement("span", { style: { color: COLORS.inkSoft, fontSize: 12.5 } }, "(", c.mins, " min)"), /* @__PURE__ */ React.createElement("span", { style: { fontSize: 11.5, color: COLORS.clay, marginLeft: 6 } }, "rolled over from ", fmtDate(c.fromDate)))))), skinExtrasForDate(viewDate, isRetreatDay).map((x) => /* @__PURE__ */ React.createElement("div", { key: x.name, style: { marginTop: 8, paddingTop: 8, borderTop: `1px solid ${COLORS.line}`, display: "flex", alignItems: "center", gap: 8 } }, /* @__PURE__ */ React.createElement("input", { type: "checkbox", checked: !!(ziipDone[viewDate] || {})[x.name], onChange: () => toggleZiipToday(x.name), style: { accentColor: COLORS.clay, width: 16, height: 16 } }), /* @__PURE__ */ React.createElement("span", { style: { fontSize: 13.5, color: COLORS.ink } }, x.name, " ", /* @__PURE__ */ React.createElement("span", { style: { color: COLORS.inkSoft, fontSize: 12.5 } }, "(", x.note, ")")))), isNonZiipDay && !isRetreatDay && /* @__PURE__ */ React.createElement("div", { style: { marginTop: 8, paddingTop: 8, borderTop: `1px solid ${COLORS.line}`, display: "flex", alignItems: "center", gap: 8 } }, /* @__PURE__ */ React.createElement("input", { type: "checkbox", checked: ledMaskDoneToday, onChange: toggleLedMask, style: { accentColor: COLORS.clay, width: 16, height: 16 } }), /* @__PURE__ */ React.createElement("span", { style: { fontSize: 13.5, color: COLORS.ink } }, "LED mask")), !isRetreatDay && (hasExfoliatingCleanseAm || dow === 4) && /* @__PURE__ */ React.createElement("div", { style: { marginTop: 8, paddingTop: 8, borderTop: `1px solid ${COLORS.line}` } }, dow === 4 && /* @__PURE__ */ React.createElement(Pill, { tone: "clay" }, isDermaplaneNight(viewDate) ? "Dermaplaning night" : "Exfoliation night"), hasExfoliatingCleanseAm && /* @__PURE__ */ React.createElement("div", { style: { fontSize: 13.5, color: COLORS.ink, marginTop: 4 } }, "AM: Exfoliating cleanse day"), dow === 4 && /* @__PURE__ */ React.createElement("div", { style: { fontSize: 13.5, color: COLORS.ink, marginTop: 4 } }, isDermaplaneNight(viewDate) ? "PM: Dermaplaning night (replaces exfoliation)" : "PM: Exfoliation night")), isToday && /* @__PURE__ */ React.createElement("div", { style: { marginTop: 8 } }, /* @__PURE__ */ React.createElement("button", { onClick: () => setTab("skin"), style: { background: "none", border: "none", color: COLORS.green, fontSize: 13, fontWeight: 600, cursor: "pointer", padding: 0 } }, "Open full skin checklist \u2192"))), dueRecurring.length > 0 && /* @__PURE__ */ React.createElement(Card, { style: dueRecurring.every((t) => recurringDoneIds.includes(t.id)) ? { borderColor: COLORS.green, background: "#A9D6A9" } : {} }, /* @__PURE__ */ React.createElement(SectionTitle, null, "Recurring tasks"), dueRecurring.map((t) => {
       const done = recurringDoneIds.includes(t.id);
       const missedIds = recurringMissed[viewDate] || [];
       const missed = missedIds.includes(t.id);
@@ -3393,50 +3268,74 @@ Notes: ${notes || "(none)"}`;
     if (d.freq === "once") return d.onceDate ? { type: "once", date: d.onceDate } : null;
     return null;
   }
-  function cleaningSpreadCandidates(tasks, today) {
-    return tasks.filter((t) => {
-      if (t.hiddenFrom) return false;
-      const r = cleaningRuleAt(t, today);
-      return r && r.rule && (r.rule.type === "interval" || r.rule.type === "imonths") && r.rule.anchor >= today;
-    });
+  var CLEANING_WEEK_A_MONDAY = "2026-10-19";
+  function cleaningMonthIndex(iso) {
+    const [y, m] = iso.split("-").map(Number);
+    return y * 12 + (m - 1);
   }
-  function cleaningPeriodDays(rule) {
-    return rule.type === "interval" ? rule.days : rule.every * 30;
+  function cleaningMonthStart(mi) {
+    return `${Math.floor(mi / 12)}-${String(mi % 12 + 1).padStart(2, "0")}-01`;
   }
-  function cleaningSpreadPlan(cands, today, ctx, allTasks) {
-    const yearEnd = today.slice(0, 4) + "-12-31";
-    const candIds = new Set(cands.map((t) => t.id));
-    const others = allTasks.filter((t) => !candIds.has(t.id));
-    const base = { ...ctx, tasks: others, today };
-    const load = {};
-    const items = cands.map((t) => {
-      const rule = cleaningRuleAt(t, today).rule;
-      const period = cleaningPeriodDays(rule);
-      let end = addDaysISO(today, Math.max(1, period) - 1);
-      if (end > yearEnd) end = yearEnd > addDaysISO(today, 13) ? yearEnd : addDaysISO(today, 13);
-      return { t, rule, end, len: daysBetween(today, end) + 1 };
-    }).sort((a, b) => a.len - b.len || a.t.text.localeCompare(b.t.text));
-    const loadOn = (d) => {
-      if (load[d] === void 0) load[d] = cleaningJobsForDate(d, base).reduce((sum, j) => sum + (((cleaningRuleAt(j.task, d) || {}).rule || {}).type === "grout" ? 3 : 1), 0);
-      return load[d];
-    };
-    const M = items.length;
-    return items.map((it, i) => {
-      const ideal = (it.len - 1) * ((i + 0.5) / M);
-      let best = null, bestScore = Infinity;
-      for (let k = 0; k < it.len; k++) {
-        const d = addDaysISO(today, k);
-        if (cleaningIsAway(d, ctx.away)) continue;
-        const score = loadOn(d) * 1e3 + Math.abs(k - ideal);
-        if (score < bestScore) {
-          bestScore = score;
-          best = d;
-        }
-      }
-      if (!best) best = today;
-      load[best] = loadOn(best) + 1;
-      return { task: it.t, rule: it.rule, date: best };
+  function cleaningListInfo(task, today) {
+    const cur = cleaningRuleAt(task, today) || task.rules[task.rules.length - 1];
+    const r = cur && cur.rule;
+    if (!r || r.type === "daily") return null;
+    if (r.type === "weekday") return { unit: "weeks", n: 1, anchor: CLEANING_WEEK_A_MONDAY };
+    if (r.type === "fortnight") return { unit: "weeks", n: 2, anchor: r.week === "A" ? CLEANING_WEEK_A_MONDAY : addDaysISO(CLEANING_WEEK_A_MONDAY, 7) };
+    if (r.type === "interval") return { unit: "weeks", n: Math.max(1, Math.round(r.days / 7)), anchor: mondayOfWeekISO(r.anchor) };
+    if (r.type === "imonths") return { unit: "months", n: r.every, anchor: cleaningMonthIndex(r.anchor) };
+    if (r.type === "grout") return { unit: "months", n: 3, anchor: cleaningMonthIndex("2026-02-01") };
+    if (r.type === "once") return { unit: "once", date: r.date };
+    if (r.type === "nth" || r.type === "monthday") {
+      const ms = (r.months || [1, 2, 3, 4, 5, 6, 7, 8, 9, 10, 11, 12]).slice().sort((a, b) => a - b);
+      const n = ms.length > 0 && 12 % ms.length === 0 ? 12 / ms.length : 1;
+      const even = n === 1 || ms.every((m, i) => i === 0 || m - ms[i - 1] === n);
+      if (even && n > 1) return { unit: "months", n, anchor: cleaningMonthIndex("2026-" + String(ms[0]).padStart(2, "0") + "-01") };
+      return { unit: "months", n: 1, anchor: cleaningMonthIndex("2026-01-01") };
+    }
+    return null;
+  }
+  function cleaningPeriod(info, d) {
+    if (info.unit === "once") return { start: "0000-01-01", end: "9999-12-31" };
+    if (info.unit === "weeks") {
+      const k2 = Math.floor(daysBetween(info.anchor, d) / (7 * info.n));
+      const start = addDaysISO(info.anchor, 7 * info.n * k2);
+      return { start, end: addDaysISO(start, 7 * info.n - 1) };
+    }
+    const k = Math.floor((cleaningMonthIndex(d) - info.anchor) / info.n);
+    const s0 = info.anchor + info.n * k;
+    return { start: cleaningMonthStart(s0), end: addDaysISO(cleaningMonthStart(s0 + info.n), -1) };
+  }
+  function cleaningListLabel(info) {
+    if (info.unit === "once") return "One-off";
+    if (info.unit === "weeks") return info.n === 1 ? "Weekly" : info.n === 2 ? "Fortnightly" : `Every ${info.n} weeks`;
+    return info.n === 1 ? "Monthly" : info.n === 3 ? "Quarterly" : info.n === 12 ? "Yearly" : `Every ${info.n} months`;
+  }
+  function cleaningListSort(info) {
+    return info.unit === "once" ? 99999 : info.unit === "weeks" ? info.n * 7 : info.n * 30.4;
+  }
+  function cleaningCompletions(id, ticks, oldDone) {
+    const out = ((ticks || {})[id] || []).slice();
+    Object.entries(oldDone || {}).forEach(([k, v]) => {
+      if (k.startsWith(id + "@") && typeof v === "string") out.push(v);
     });
+    return out.sort();
+  }
+  function cleaningLists(tasks, today, ticks, oldDone) {
+    const groups = {};
+    tasks.forEach((t) => {
+      if (t.hiddenFrom) return;
+      const info = cleaningListInfo(t, today);
+      if (!info) return;
+      if (info.unit === "once" && info.date > today) return;
+      const per = cleaningPeriod(info, today);
+      const dates = cleaningCompletions(t.id, ticks, oldDone);
+      const inPer = dates.filter((d) => d >= per.start && d <= per.end);
+      const label = cleaningListLabel(info);
+      const g = groups[label] || (groups[label] = { label, sort: cleaningListSort(info), unit: info.unit, items: [] });
+      g.items.push({ task: t, done: inPer.length > 0, doneOn: inPer.length ? inPer[inPer.length - 1] : null, last: dates.length ? dates[dates.length - 1] : null, per });
+    });
+    return Object.values(groups).sort((a, b) => a.sort - b.sort);
   }
   function CleaningJobForm({ draft, setDraft, areas }) {
     const set = (patch) => setDraft({ ...draft, ...patch });
@@ -3493,25 +3392,6 @@ Notes: ${notes || "(none)"}`;
       }
       cancel();
     };
-    const [spreadOpen, setSpreadOpen] = useState(false);
-    const [spreadOff, setSpreadOff] = useState({});
-    const spreadCands = cleaningSpreadCandidates(tasks, today);
-    const spreadPlan = spreadOpen ? cleaningSpreadPlan(spreadCands.filter((t) => !spreadOff[t.id]), today, cleaningCtx(cleaning), tasks) : [];
-    const applySpread = () => {
-      let cfg = { ...jobs };
-      spreadPlan.forEach(({ task, rule, date }) => {
-        const nr = { ...rule, anchor: date };
-        if (task.builtin) {
-          const e = (cfg.edits || {})[task.id] || {};
-          cfg = { ...cfg, edits: { ...cfg.edits || {}, [task.id]: { ...e, rules: withRule(e.rules || [], nr, void 0) } } };
-        } else {
-          cfg = { ...cfg, custom: (cfg.custom || []).map((c) => c.id !== task.id ? c : { ...c, rules: withRule(c.rules, nr, void 0) }) };
-        }
-      });
-      cleaning.setJobsCfg(cfg);
-      setSpreadOpen(false);
-      setSpreadOff({});
-    };
     const hide = (t) => cleaning.setJobsCfg({ ...jobs, hidden: { ...jobs.hidden || {}, [t.id]: today } });
     const restore = (t) => {
       const h = { ...jobs.hidden || {} };
@@ -3537,81 +3417,50 @@ Notes: ${notes || "(none)"}`;
       (byArea[t.area] = byArea[t.area] || []).push(t);
     });
     const editingTask = editing && editing !== "new" ? tasks.find((t) => t.id === editing) : null;
-    return /* @__PURE__ */ React.createElement(Card, null, /* @__PURE__ */ React.createElement(SectionTitle, { sub: "Add jobs, change what or when, or hide ones you don't want. Changes apply from today." }, "Manage jobs"), !open && /* @__PURE__ */ React.createElement(Btn, { tone: "ghost", onClick: () => setOpen(true) }, "Open job list"), open && /* @__PURE__ */ React.createElement("div", null, /* @__PURE__ */ React.createElement("div", { style: { display: "flex", gap: 6, flexWrap: "wrap" } }, /* @__PURE__ */ React.createElement(Btn, { onClick: startNew }, "+ Add a job"), spreadCands.length > 0 && /* @__PURE__ */ React.createElement(Btn, { tone: "ghost", onClick: () => setSpreadOpen(!spreadOpen) }, "Spread out start dates (", spreadCands.length, ")"), /* @__PURE__ */ React.createElement(Btn, { tone: "ghost", onClick: () => {
+    return /* @__PURE__ */ React.createElement(Card, null, /* @__PURE__ */ React.createElement(SectionTitle, { sub: "Add jobs, change what or when, or hide ones you don't want. Changes apply from today." }, "Manage jobs"), !open && /* @__PURE__ */ React.createElement(Btn, { tone: "ghost", onClick: () => setOpen(true) }, "Open job list"), open && /* @__PURE__ */ React.createElement("div", null, /* @__PURE__ */ React.createElement("div", { style: { display: "flex", gap: 6, flexWrap: "wrap" } }, /* @__PURE__ */ React.createElement(Btn, { onClick: startNew }, "+ Add a job"), /* @__PURE__ */ React.createElement(Btn, { tone: "ghost", onClick: () => {
       setOpen(false);
       cancel();
-    } }, "Close")), spreadOpen && /* @__PURE__ */ React.createElement("div", { style: { border: `1px solid ${COLORS.green}`, borderRadius: 10, padding: 10, marginTop: 10 } }, /* @__PURE__ */ React.createElement("div", { style: { fontSize: 14, fontWeight: 700, color: COLORS.ink } }, "Spread out first dates"), /* @__PURE__ */ React.createElement("div", { style: { fontSize: 12, color: COLORS.inkSoft, margin: "3px 0 6px" } }, "These every-N-weeks and every-N-months jobs haven't started yet. Each gets a first date between now and the end of the year (never later than one cycle away), balanced against what's already on each day and skipping away days. The cycle then counts on from that date. Untick any you want left alone."), spreadCands.map((t) => {
-      const hit = spreadPlan.find((x) => x.task.id === t.id);
-      return /* @__PURE__ */ React.createElement("label", { key: t.id, style: { display: "flex", gap: 8, alignItems: "flex-start", padding: "4px 0", borderBottom: `1px solid ${COLORS.line}`, cursor: "pointer" } }, /* @__PURE__ */ React.createElement("input", { type: "checkbox", checked: !spreadOff[t.id], onChange: () => setSpreadOff({ ...spreadOff, [t.id]: !spreadOff[t.id] }), style: { accentColor: COLORS.green, width: 18, height: 18, flexShrink: 0, marginTop: 1 } }), /* @__PURE__ */ React.createElement("span", { style: { flex: 1, fontSize: 13, color: COLORS.ink } }, t.text, /* @__PURE__ */ React.createElement("span", { style: { display: "block", fontSize: 12, color: COLORS.inkSoft } }, cleaningRuleSummary(cleaningRuleAt(t, today).rule))), /* @__PURE__ */ React.createElement("span", { style: { fontSize: 12.5, fontWeight: 600, color: hit ? COLORS.green : COLORS.inkSoft, whiteSpace: "nowrap" } }, hit ? fmtDate(hit.date) : "unchanged"));
-    }), /* @__PURE__ */ React.createElement("div", { style: { display: "flex", gap: 6, marginTop: 8 } }, /* @__PURE__ */ React.createElement(Btn, { disabled: spreadPlan.length === 0, onClick: applySpread }, "Apply these dates"), /* @__PURE__ */ React.createElement(Btn, { tone: "ghost", onClick: () => setSpreadOpen(false) }, "Cancel"))), editing && draft && /* @__PURE__ */ React.createElement("div", { style: { border: `1px solid ${COLORS.green}`, borderRadius: 10, padding: 10, marginTop: 10 } }, /* @__PURE__ */ React.createElement("div", { style: { fontSize: 14, fontWeight: 700, color: COLORS.ink } }, editing === "new" ? "New job" : "Edit job"), /* @__PURE__ */ React.createElement(CleaningJobForm, { draft, setDraft, areas }), /* @__PURE__ */ React.createElement("div", { style: { display: "flex", gap: 6, flexWrap: "wrap", marginTop: 10 } }, /* @__PURE__ */ React.createElement(Btn, { disabled: !valid, onClick: save }, "Save"), /* @__PURE__ */ React.createElement(Btn, { tone: "ghost", onClick: cancel }, "Cancel"), editingTask && editingTask.builtin && editingTask.edited && /* @__PURE__ */ React.createElement(Btn, { tone: "ghost", onClick: () => reset(editingTask) }, "Reset to original"), editingTask && !editingTask.builtin && /* @__PURE__ */ React.createElement(Btn, { tone: "danger", onClick: () => removeCustom(editingTask) }, "Delete for good"))), Object.keys(byArea).sort().map((area) => /* @__PURE__ */ React.createElement("div", { key: area, style: { marginTop: 10 } }, /* @__PURE__ */ React.createElement("div", { style: { fontSize: 12, fontWeight: 700, color: COLORS.slate, textTransform: "uppercase", letterSpacing: 0.4 } }, area), byArea[area].map((t) => {
+    } }, "Close")), editing && draft && /* @__PURE__ */ React.createElement("div", { style: { border: `1px solid ${COLORS.green}`, borderRadius: 10, padding: 10, marginTop: 10 } }, /* @__PURE__ */ React.createElement("div", { style: { fontSize: 14, fontWeight: 700, color: COLORS.ink } }, editing === "new" ? "New job" : "Edit job"), /* @__PURE__ */ React.createElement(CleaningJobForm, { draft, setDraft, areas }), /* @__PURE__ */ React.createElement("div", { style: { display: "flex", gap: 6, flexWrap: "wrap", marginTop: 10 } }, /* @__PURE__ */ React.createElement(Btn, { disabled: !valid, onClick: save }, "Save"), /* @__PURE__ */ React.createElement(Btn, { tone: "ghost", onClick: cancel }, "Cancel"), editingTask && editingTask.builtin && editingTask.edited && /* @__PURE__ */ React.createElement(Btn, { tone: "ghost", onClick: () => reset(editingTask) }, "Reset to original"), editingTask && !editingTask.builtin && /* @__PURE__ */ React.createElement(Btn, { tone: "danger", onClick: () => removeCustom(editingTask) }, "Delete for good"))), Object.keys(byArea).sort().map((area) => /* @__PURE__ */ React.createElement("div", { key: area, style: { marginTop: 10 } }, /* @__PURE__ */ React.createElement("div", { style: { fontSize: 12, fontWeight: 700, color: COLORS.slate, textTransform: "uppercase", letterSpacing: 0.4 } }, area), byArea[area].map((t) => {
       const r = cleaningRuleAt(t, today) || t.rules[t.rules.length - 1];
-      return /* @__PURE__ */ React.createElement("div", { key: t.id, style: { display: "flex", gap: 8, alignItems: "flex-start", padding: "5px 6px", borderBottom: `1px solid ${COLORS.line}` } }, /* @__PURE__ */ React.createElement("div", { style: { flex: 1 } }, /* @__PURE__ */ React.createElement("div", { style: { fontSize: 13.5, color: COLORS.ink } }, t.text, t.edited && /* @__PURE__ */ React.createElement("span", { style: { fontSize: 11, color: COLORS.clay, marginLeft: 6 } }, "edited"), !t.builtin && /* @__PURE__ */ React.createElement("span", { style: { fontSize: 11, color: COLORS.green, marginLeft: 6 } }, "yours")), /* @__PURE__ */ React.createElement("div", { style: { fontSize: 12, color: COLORS.inkSoft } }, cleaningRuleSummary(r.rule))), /* @__PURE__ */ React.createElement("button", { onClick: () => startEdit(t), style: { background: "none", border: "none", cursor: "pointer", color: COLORS.green, fontSize: 12.5, fontWeight: 600 } }, "edit"), /* @__PURE__ */ React.createElement("button", { onClick: () => hide(t), style: { background: "none", border: "none", cursor: "pointer", color: COLORS.inkSoft, fontSize: 12.5 } }, "hide"));
+      return /* @__PURE__ */ React.createElement("div", { key: t.id, style: { display: "flex", gap: 8, alignItems: "flex-start", padding: "5px 6px", borderBottom: `1px solid ${COLORS.line}` } }, /* @__PURE__ */ React.createElement("div", { style: { flex: 1 } }, /* @__PURE__ */ React.createElement("div", { style: { fontSize: 13.5, color: COLORS.ink } }, t.text, t.edited && /* @__PURE__ */ React.createElement("span", { style: { fontSize: 11, color: COLORS.clay, marginLeft: 6 } }, "edited"), !t.builtin && /* @__PURE__ */ React.createElement("span", { style: { fontSize: 11, color: COLORS.green, marginLeft: 6 } }, "yours")), /* @__PURE__ */ React.createElement("div", { style: { fontSize: 12, color: COLORS.inkSoft } }, (() => {
+        const li = cleaningListInfo(t, today);
+        return li ? `${cleaningListLabel(li)} list` : "No list";
+      })(), " \xB7 ", cleaningRuleSummary(r.rule))), /* @__PURE__ */ React.createElement("button", { onClick: () => startEdit(t), style: { background: "none", border: "none", cursor: "pointer", color: COLORS.green, fontSize: 12.5, fontWeight: 600 } }, "edit"), /* @__PURE__ */ React.createElement("button", { onClick: () => hide(t), style: { background: "none", border: "none", cursor: "pointer", color: COLORS.inkSoft, fontSize: 12.5 } }, "hide"));
     }))), hiddenList.length > 0 && /* @__PURE__ */ React.createElement("div", { style: { marginTop: 12 } }, /* @__PURE__ */ React.createElement("div", { style: { fontSize: 12, fontWeight: 700, color: COLORS.slate, textTransform: "uppercase", letterSpacing: 0.4 } }, "Hidden"), hiddenList.map((t) => /* @__PURE__ */ React.createElement("div", { key: t.id, style: { display: "flex", gap: 8, padding: "4px 6px", alignItems: "center" } }, /* @__PURE__ */ React.createElement("div", { style: { flex: 1, fontSize: 13, color: COLORS.inkSoft } }, t.text), /* @__PURE__ */ React.createElement("button", { onClick: () => restore(t), style: { background: "none", border: "none", cursor: "pointer", color: COLORS.green, fontSize: 12.5, fontWeight: 600 } }, "restore"))))));
   }
-  function cleaningDoneCount(jobs) {
-    return jobs.filter((j) => j.done).length;
-  }
-  function cleaningAreas(jobs) {
-    return [...new Set(jobs.map((j) => j.task.area))];
-  }
-  function CleaningEarlyPicker({ today, cleaning }) {
-    const [open, setOpen] = useState(false);
-    if (!open) return /* @__PURE__ */ React.createElement(Btn, { tone: "ghost", onClick: () => setOpen(true), style: { marginTop: 8 } }, "Did something early?");
-    const start = addDaysISO(today, 1);
-    const list = cleaningUpcomingJobs(start < CLEANING_START ? CLEANING_START : start, 10, cleaningCtx(cleaning)).concat(
-      // jobs due today or earlier that haven't rolled (e.g. before the schedule started) are not offered; only future days
-      []
-    );
-    const dates = [...new Set(list.map((j) => j.scheduled))];
-    const markEarly = (job) => cleaning.setDone({ ...cleaning.done, [job.key]: today });
-    return /* @__PURE__ */ React.createElement("div", { style: { marginTop: 8, borderTop: `1px solid ${COLORS.line}`, paddingTop: 8 } }, /* @__PURE__ */ React.createElement("div", { style: { display: "flex", justifyContent: "space-between", alignItems: "center" } }, /* @__PURE__ */ React.createElement("div", { style: { fontSize: 13, fontWeight: 600, color: COLORS.ink } }, "Tick off something coming up"), /* @__PURE__ */ React.createElement("button", { onClick: () => setOpen(false), style: { background: "none", border: "none", cursor: "pointer", color: COLORS.inkSoft, fontSize: 12.5 } }, "close")), /* @__PURE__ */ React.createElement("div", { style: { fontSize: 12, color: COLORS.inkSoft, marginBottom: 4 } }, "It will show ticked on its own day, and you can untick it there if you do it again."), list.length === 0 && /* @__PURE__ */ React.createElement("div", { style: { fontSize: 13, color: COLORS.inkSoft } }, "Nothing else due in the next 10 days."), dates.map((d) => /* @__PURE__ */ React.createElement("div", { key: d, style: { marginTop: 4 } }, /* @__PURE__ */ React.createElement("div", { style: { fontSize: 12, fontWeight: 700, color: COLORS.slate } }, fmtDate(d)), list.filter((j) => j.scheduled === d).map((job) => /* @__PURE__ */ React.createElement("div", { key: job.key, style: { display: "flex", alignItems: "center", gap: 8, padding: "4px 6px" } }, /* @__PURE__ */ React.createElement("input", { type: "checkbox", checked: false, onChange: () => markEarly(job), style: { accentColor: COLORS.clay, width: 16, height: 16, flexShrink: 0 } }), /* @__PURE__ */ React.createElement("div", { style: { flex: 1, fontSize: 13.5, color: COLORS.ink } }, job.task.text))))));
-  }
   function CleaningTab({ today, cleaning }) {
-    const { done, setDone, away, setAway, moves, setMoves } = cleaning;
-    const ctx = cleaningCtx(cleaning);
-    const [viewDate, setViewDate] = useState(today < CLEANING_START ? CLEANING_START : today);
-    const [moveKey, setMoveKey] = useState(null);
-    const [moveTo, setMoveTo] = useState("");
-    const [awayFrom, setAwayFrom] = useState("");
-    const [awayTo, setAwayTo] = useState("");
-    const jobs = cleaningJobsForDate(viewDate, ctx);
-    const isAway = cleaningIsAway(viewDate, away);
-    const areas = cleaningAreas(jobs);
-    const tick = (job) => {
-      const next = { ...done };
-      if (job.done) delete next[job.key];
-      else next[job.key] = viewDate;
-      setDone(next);
+    const { done, setDone, ticks, setTicks } = cleaning;
+    const [openMap, setOpenMap] = useState({});
+    const groups = cleaningLists(cleaning.allTasks, today, ticks, done);
+    const isOpen = (g, i) => openMap[g.label] !== void 0 ? openMap[g.label] : i < 2;
+    const toggleJob = (item) => {
+      const id = item.task.id;
+      if (item.done) {
+        const inPer = (d) => d >= item.per.start && d <= item.per.end;
+        setTicks({ ...ticks, [id]: (ticks[id] || []).filter((d) => !inPer(d)) });
+        const nd = { ...done };
+        let changed = false;
+        Object.keys(nd).forEach((k) => {
+          if (k.startsWith(id + "@") && inPer(nd[k])) {
+            delete nd[k];
+            changed = true;
+          }
+        });
+        if (changed) setDone(nd);
+      } else {
+        setTicks({ ...ticks, [id]: [...ticks[id] || [], today] });
+      }
     };
-    const applyMove = (job, to) => {
-      const kept = moves.filter((m) => !(m.id === job.task.id && m.from === job.scheduled));
-      setMoves([...kept, { id: job.task.id, from: job.scheduled, to }]);
-      setMoveKey(null);
-      setMoveTo("");
-    };
-    const weekStart = mondayOfWeekISO(viewDate);
-    const weekDays = Array.from({ length: 7 }, (_, i) => addDaysISO(weekStart, i));
-    const upcoming = [];
-    for (let i = 1; i <= 42; i++) {
-      const d = addDaysISO(viewDate, i);
-      if (d < CLEANING_START) continue;
-      const list = cleaning.allTasks.filter((t) => cleaningIsRoll(t) && cleaningScheduledOn(t, d, [...CLEANING_BUILTIN_MOVES, ...moves]));
-      if (list.length) upcoming.push({ d, list, away: cleaningIsAway(d, away) });
-    }
-    const addAway = () => {
-      if (!awayFrom || !awayTo || awayTo < awayFrom) return;
-      setAway([...away, { from: awayFrom, to: awayTo }].sort((a, b) => a.from.localeCompare(b.from)));
-      setAwayFrom("");
-      setAwayTo("");
-    };
-    return /* @__PURE__ */ React.createElement("div", null, /* @__PURE__ */ React.createElement(Card, null, /* @__PURE__ */ React.createElement("div", { style: { display: "flex", alignItems: "center", justifyContent: "space-between", gap: 8 } }, /* @__PURE__ */ React.createElement(Btn, { tone: "ghost", onClick: () => setViewDate(addDaysISO(viewDate, -1)) }, "\u2190"), /* @__PURE__ */ React.createElement("div", { style: { textAlign: "center" } }, /* @__PURE__ */ React.createElement("div", { style: { fontSize: 16, fontWeight: 700, color: COLORS.ink } }, fmtDate(viewDate)), viewDate !== today && /* @__PURE__ */ React.createElement("button", { onClick: () => setViewDate(today < CLEANING_START ? CLEANING_START : today), style: { background: "none", border: "none", color: COLORS.green, cursor: "pointer", fontSize: 12.5, fontWeight: 600 } }, "back to today")), /* @__PURE__ */ React.createElement(Btn, { tone: "ghost", onClick: () => setViewDate(addDaysISO(viewDate, 1)) }, "\u2192"))), /* @__PURE__ */ React.createElement(Card, null, /* @__PURE__ */ React.createElement(SectionTitle, { sub: viewDate < CLEANING_START ? `The schedule starts on ${fmtDate(CLEANING_START)}.` : jobs.length ? `${cleaningDoneCount(jobs)} of ${jobs.length} done` : void 0 }, "Cleaning"), viewDate < CLEANING_START && /* @__PURE__ */ React.createElement("div", { style: { fontSize: 13.5, color: COLORS.inkSoft } }, "Nothing scheduled yet."), isAway && /* @__PURE__ */ React.createElement("div", { style: { fontSize: 13.5, color: COLORS.inkSoft } }, "You're away, so nothing is scheduled. Monthly and longer jobs that fall in this period show up from your first day back."), !isAway && viewDate >= CLEANING_START && jobs.length === 0 && /* @__PURE__ */ React.createElement("div", { style: { fontSize: 13.5, color: COLORS.inkSoft } }, "Nothing on today."), areas.map((area) => /* @__PURE__ */ React.createElement("div", { key: area, style: { marginTop: 8 } }, /* @__PURE__ */ React.createElement("div", { style: { fontSize: 12, fontWeight: 700, color: COLORS.slate, textTransform: "uppercase", letterSpacing: 0.4, marginBottom: 2 } }, area), jobs.filter((j) => j.task.area === area).map((job) => /* @__PURE__ */ React.createElement("div", { key: job.key }, /* @__PURE__ */ React.createElement("div", { style: { display: "flex", alignItems: "center", gap: 8, padding: "5px 6px", borderRadius: 6, background: job.done ? "#A9D6A9" : "transparent" } }, /* @__PURE__ */ React.createElement("input", { type: "checkbox", checked: job.done, onChange: () => tick(job), style: { accentColor: COLORS.clay, width: 16, height: 16, flexShrink: 0 } }), /* @__PURE__ */ React.createElement("div", { style: { flex: 1, fontSize: 14, color: job.done ? COLORS.inkSoft : COLORS.ink, textDecoration: job.done ? "line-through" : "none" } }, job.task.text, job.overdue && /* @__PURE__ */ React.createElement("span", { style: { fontSize: 11.5, color: COLORS.clay, marginLeft: 6 } }, "rolled over from ", fmtDate(job.scheduled)), job.early && /* @__PURE__ */ React.createElement("span", { style: { fontSize: 11.5, color: COLORS.green, marginLeft: 6 } }, "done early on ", fmtDate(job.doneOn))), !job.done && /* @__PURE__ */ React.createElement("button", { onClick: () => {
-      setMoveKey(moveKey === job.key ? null : job.key);
-      setMoveTo("");
-    }, style: { background: "none", border: "none", cursor: "pointer", color: COLORS.inkSoft, fontSize: 12, padding: "0 2px", flexShrink: 0 } }, "move")), moveKey === job.key && /* @__PURE__ */ React.createElement("div", { style: { display: "flex", gap: 6, alignItems: "center", flexWrap: "wrap", padding: "4px 6px 8px 30px" } }, /* @__PURE__ */ React.createElement(Input, { type: "date", value: moveTo, onChange: (e) => setMoveTo(e.target.value) }), /* @__PURE__ */ React.createElement(Btn, { disabled: !moveTo, onClick: () => applyMove(job, moveTo) }, "Move here"), /* @__PURE__ */ React.createElement(Btn, { tone: "ghost", onClick: () => applyMove(job, null) }, "Skip this one")))))), /* @__PURE__ */ React.createElement(CleaningEarlyPicker, { today, cleaning })), /* @__PURE__ */ React.createElement(Card, null, /* @__PURE__ */ React.createElement(SectionTitle, { sub: "Tap a day to open it." }, "This week"), weekDays.map((d) => {
-      const dj = cleaningJobsForDate(d, ctx);
-      const aw = cleaningIsAway(d, away);
-      return /* @__PURE__ */ React.createElement("div", { key: d, onClick: () => setViewDate(d), style: { display: "flex", gap: 8, padding: "5px 6px", cursor: "pointer", borderRadius: 6, background: d === viewDate ? "#EEF3EE" : "transparent" } }, /* @__PURE__ */ React.createElement("div", { style: { width: 92, fontSize: 13, fontWeight: d === today ? 700 : 500, color: d === today ? COLORS.green : COLORS.ink, flexShrink: 0 } }, fmtDate(d)), /* @__PURE__ */ React.createElement("div", { style: { flex: 1, fontSize: 12.5, color: COLORS.inkSoft } }, aw ? "Away" : d < CLEANING_START ? "" : `${cleaningAreas(dj).join(" \xB7 ")} (${cleaningDoneCount(dj)}/${dj.length})`));
-    })), /* @__PURE__ */ React.createElement(Card, null, /* @__PURE__ */ React.createElement(SectionTitle, { sub: "Monthly and longer jobs in the next six weeks." }, "Coming up"), upcoming.length === 0 && /* @__PURE__ */ React.createElement("div", { style: { fontSize: 13.5, color: COLORS.inkSoft } }, "Nothing big coming up."), upcoming.map((u) => /* @__PURE__ */ React.createElement("div", { key: u.d, style: { padding: "4px 6px" } }, /* @__PURE__ */ React.createElement("div", { style: { fontSize: 13, fontWeight: 600, color: COLORS.ink } }, fmtDate(u.d), u.away && /* @__PURE__ */ React.createElement("span", { style: { fontWeight: 400, color: COLORS.inkSoft } }, " (away, shows when you're back)")), /* @__PURE__ */ React.createElement("div", { style: { fontSize: 12.5, color: COLORS.inkSoft } }, u.list.map((t) => t.text).join(" \xB7 "))))), /* @__PURE__ */ React.createElement(Card, null, /* @__PURE__ */ React.createElement(SectionTitle, { sub: "Nothing is scheduled while you're away. Monthly and longer jobs that fell in the gap appear from your first day back." }, "Away periods"), away.length === 0 && /* @__PURE__ */ React.createElement("div", { style: { fontSize: 13.5, color: COLORS.inkSoft } }, "None set."), away.map((a, i) => /* @__PURE__ */ React.createElement("div", { key: i, style: { display: "flex", alignItems: "center", gap: 8, padding: "4px 6px" } }, /* @__PURE__ */ React.createElement("div", { style: { flex: 1, fontSize: 13.5, color: COLORS.ink } }, fmtDate(a.from), " to ", fmtDate(a.to)), /* @__PURE__ */ React.createElement("button", { onClick: () => setAway(away.filter((_, j) => j !== i)), style: { background: "none", border: "none", cursor: "pointer", color: COLORS.danger, fontSize: 12.5 } }, "remove"))), /* @__PURE__ */ React.createElement("div", { style: { display: "flex", gap: 6, alignItems: "center", flexWrap: "wrap", marginTop: 8 } }, /* @__PURE__ */ React.createElement(Input, { type: "date", value: awayFrom, onChange: (e) => setAwayFrom(e.target.value) }), /* @__PURE__ */ React.createElement("span", { style: { fontSize: 13, color: COLORS.inkSoft } }, "to"), /* @__PURE__ */ React.createElement(Input, { type: "date", value: awayTo, onChange: (e) => setAwayTo(e.target.value) }), /* @__PURE__ */ React.createElement(Btn, { disabled: !awayFrom || !awayTo || awayTo < awayFrom, onClick: addAway }, "Add"))), /* @__PURE__ */ React.createElement(CleaningManage, { today, cleaning }));
+    const totalItems = groups.reduce((n, g) => n + g.items.length, 0);
+    const totalDone = groups.reduce((n, g) => n + g.items.filter((i) => i.done).length, 0);
+    return /* @__PURE__ */ React.createElement("div", null, /* @__PURE__ */ React.createElement(Card, null, /* @__PURE__ */ React.createElement(SectionTitle, { sub: "Tick jobs off whenever you do them. Each list starts again when its week, fortnight, month or quarter rolls over." }, "Cleaning"), /* @__PURE__ */ React.createElement("div", { style: { fontSize: 13, color: COLORS.inkSoft } }, totalDone, " of ", totalItems, " done in their current period")), groups.map((g, gi) => {
+      const doneCount = g.items.filter((i) => i.done).length;
+      const open = isOpen(g, gi);
+      const areas = [...new Set(g.items.map((i) => i.task.area))].sort();
+      const first = g.items[0];
+      const sameRange = g.items.every((i) => i.per.start === first.per.start);
+      return /* @__PURE__ */ React.createElement(Card, { key: g.label, style: doneCount === g.items.length ? { borderColor: COLORS.green, background: "#E4F1E4" } : {} }, /* @__PURE__ */ React.createElement(CollapseHeader, { collapsed: !open, onToggle: () => setOpenMap({ ...openMap, [g.label]: !open }) }, /* @__PURE__ */ React.createElement(SectionTitle, { sub: `${doneCount} of ${g.items.length} done${g.unit !== "once" && sameRange ? ` \xB7 ${fmtDate(first.per.start)} to ${fmtDate(first.per.end)}` : ""}` }, g.label)), open && areas.map((area) => /* @__PURE__ */ React.createElement("div", { key: area, style: { marginTop: 8 } }, /* @__PURE__ */ React.createElement("div", { style: { fontSize: 12, fontWeight: 700, color: COLORS.slate, textTransform: "uppercase", letterSpacing: 0.4, marginBottom: 2 } }, area), g.items.filter((i) => i.task.area === area).sort((a, b) => a.task.text.localeCompare(b.task.text)).map((item) => /* @__PURE__ */ React.createElement("div", { key: item.task.id, style: { display: "flex", alignItems: "flex-start", gap: 8, padding: "5px 6px", borderRadius: 6, background: item.done ? "#A9D6A9" : "transparent" } }, /* @__PURE__ */ React.createElement("input", { type: "checkbox", checked: item.done, onChange: () => toggleJob(item), style: { accentColor: COLORS.clay, width: 16, height: 16, flexShrink: 0, marginTop: 2 } }), /* @__PURE__ */ React.createElement("div", { style: { flex: 1, fontSize: 14, color: item.done ? COLORS.inkSoft : COLORS.ink, textDecoration: item.done ? "line-through" : "none" } }, item.task.text, item.done && item.doneOn && /* @__PURE__ */ React.createElement("span", { style: { fontSize: 11.5, color: COLORS.green, marginLeft: 6, textDecoration: "none", display: "inline-block" } }, "done ", fmtDate(item.doneOn)), !item.done && item.last && /* @__PURE__ */ React.createElement("span", { style: { fontSize: 11.5, color: COLORS.inkSoft, marginLeft: 6 } }, "last done ", fmtDate(item.last)), !item.done && g.unit === "months" && !sameRange && /* @__PURE__ */ React.createElement("span", { style: { fontSize: 11.5, color: COLORS.inkSoft, marginLeft: 6 } }, "until ", fmtDate(item.per.end))))))));
+    }), /* @__PURE__ */ React.createElement(CleaningManage, { today, cleaning }));
   }
   function WeekTab({ cleaning, today, fitnessSettings, fitnessOverrides, fitnessLogs, ziipSettings, ziipDone, skinPlan, ledMaskDone, todos, meals, weeklyPool, todayPicks, poolDone, recurringTasks, recurringDone, weeklyReflections, setWeeklyReflections, focusItems, focusDone, setTab, setViewDate }) {
     const [weekStart, setWeekStart] = useState(mondayOfWeekISO(today));
@@ -3642,7 +3491,6 @@ Notes: ${notes || "(none)"}`;
       const { regularSession } = computeFitnessForDate(d, fitnessSettings, fitnessOverrides);
       const appts = (todos || []).filter((t) => t.date === d && (t.source === "calendar" || t.source === "calendar-live" || t.source === "retreat")).sort((a, b) => apptSortKey(a.text).localeCompare(apptSortKey(b.text)));
       const dueRecurring = dueRecurringTasksForDate(d, recurringTasks, recurringDone);
-      const cleanJobs = cleaningJobsForDate(d, cleaningCtx(cleaning));
       const mealEntry = meals[d];
       const isToday = d === today;
       const dow = dayOfWeekISO(d);
@@ -3665,7 +3513,7 @@ Notes: ${notes || "(none)"}`;
         } }, /* @__PURE__ */ React.createElement("div", { style: { display: "flex", justifyContent: "space-between", alignItems: "baseline" } }, /* @__PURE__ */ React.createElement("span", { style: { fontSize: 14.5, fontWeight: 700, color: isToday ? COLORS.green : COLORS.ink } }, fmtDate(d)), isRetreatDay && /* @__PURE__ */ React.createElement(Pill, { tone: "clay" }, retreat.theme), !isRetreatDay && isExfoliationNight && /* @__PURE__ */ React.createElement(Pill, { tone: "clay" }, isDermNight ? "Dermaplaning night" : "Exfoliation night")), /* @__PURE__ */ React.createElement("div", { style: { fontSize: 13, color: COLORS.ink, marginTop: 4 } }, isRetreatDay ? retreat.training : regularSession), /* @__PURE__ */ React.createElement("div", { style: { fontSize: 12, color: COLORS.inkSoft, marginTop: 3 } }, ziipToday && !ziipToday.rest ? `ZIIP: ${ziipToday.t.map(([n]) => n).join(", ")}` : ziipToday && ziipToday.away ? "ZIIP: away" : "ZIIP: rest", extras.map((x) => ` \xB7 ${x.name}${(ziipDone[d] || {})[x.name] ? " \u2713" : ""}`).join(""), isNonZiipDay && ` \xB7 LED mask${ledMaskDoneOnDay ? " \u2713" : ""}`), !isRetreatDay && (hasExfoliatingCleanseAm || isExfoliationNight) && /* @__PURE__ */ React.createElement("div", { style: { fontSize: 12, color: isExfoliationNight ? COLORS.clay : COLORS.inkSoft, marginTop: 3, fontWeight: isExfoliationNight ? 700 : 400 } }, "Skin \u2014 ", [hasExfoliatingCleanseAm && "AM: Exfoliating cleanse", isExfoliationNight && (isDermNight ? "PM: Dermaplaning night" : "PM: Exfoliation night")].filter(Boolean).join(" \xB7 ")), appts.length > 0 && /* @__PURE__ */ React.createElement("div", { style: { fontSize: 12, color: COLORS.clay, marginTop: 3 } }, appts.map((a) => a.text).join(" \xB7 ")), dueRecurring.length > 0 && /* @__PURE__ */ React.createElement("div", { style: { fontSize: 12, color: COLORS.slate, marginTop: 3 } }, dueRecurring.map((r) => {
           const rf = recurringRolledFrom(r, d);
           return rf ? `${r.text} (from ${fmtDate(rf)})` : r.text;
-        }).join(" \xB7 ")), cleanJobs.length > 0 && /* @__PURE__ */ React.createElement("div", { style: { fontSize: 12, color: COLORS.slate, marginTop: 3 } }, "Cleaning: ", cleaningAreas(cleanJobs).join(" \xB7 "), " (", cleaningDoneCount(cleanJobs), "/", cleanJobs.length, ")"), mealEntry && mealEntry.dinner && /* @__PURE__ */ React.createElement("div", { style: { fontSize: 12, color: COLORS.inkSoft, marginTop: 3 } }, "Dinner: ", mealEntry.dinner), isRetreatDay && !mealEntry && /* @__PURE__ */ React.createElement("div", { style: { fontSize: 12, color: COLORS.inkSoft, marginTop: 3 } }, "Dinner: ", retreat.dinner))
+        }).join(" \xB7 ")), mealEntry && mealEntry.dinner && /* @__PURE__ */ React.createElement("div", { style: { fontSize: 12, color: COLORS.inkSoft, marginTop: 3 } }, "Dinner: ", mealEntry.dinner), isRetreatDay && !mealEntry && /* @__PURE__ */ React.createElement("div", { style: { fontSize: 12, color: COLORS.inkSoft, marginTop: 3 } }, "Dinner: ", retreat.dinner))
       );
     }), /* @__PURE__ */ React.createElement(Card, null, /* @__PURE__ */ React.createElement(SectionTitle, { sub: "Task and workout counts are automatic \u2014 the rest is up to you." }, "Weekly reflection"), /* @__PURE__ */ React.createElement("div", { style: { fontSize: 13, color: COLORS.ink, marginBottom: 10, lineHeight: 1.7 } }, /* @__PURE__ */ React.createElement("div", null, weeklyTaskTotals.total > 0 ? `${weeklyTaskTotals.done} of ${weeklyTaskTotals.total} tasks done this week` : "No tasks tracked this week"), /* @__PURE__ */ React.createElement("div", null, completedWorkouts, " of ", scheduledWorkouts, " scheduled workout", scheduledWorkouts === 1 ? "" : "s", " completed")), /* @__PURE__ */ React.createElement(
       "textarea",
