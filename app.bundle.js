@@ -590,7 +590,7 @@ Notes: ${notes || "(none)"}`;
     },
     {
       name: "Block 2 \u2014 Cycling Priority",
-      weeks: "Weeks 7\u201312",
+      weeks: "Weeks 7\u201318",
       days: [
         "__CYCLING_BLOCK2__",
         "__IRON_BLOCK2_FULLBODY__",
@@ -603,7 +603,7 @@ Notes: ${notes || "(none)"}`;
     },
     {
       name: "Block 3 \u2014 Running Priority",
-      weeks: "Weeks 13\u201321",
+      weeks: "Weeks 19\u201327",
       days: [
         "__C25K_ROTATION__",
         "Iron \u2014 Full Body maintenance (40 min)",
@@ -616,7 +616,7 @@ Notes: ${notes || "(none)"}`;
     },
     {
       name: "Block 4 \u2014 Pilates / Yoga / Mobility Priority",
-      weeks: "Weeks 22\u201327",
+      weeks: "Weeks 28\u201333",
       days: [
         "Pilates \u2014 trial app rotation (see Kirsty's plan)",
         "Iron \u2014 Full Body maintenance (40 min)",
@@ -907,7 +907,7 @@ Notes: ${notes || "(none)"}`;
     { t: [["Refresh & Depuff", 6], ["Instant Lift", 6], ["Glow Renewal", 10]] }
   ];
   var ZIIP_ROTATION_START = "2026-10-21";
-  var ZIIP_AWAY_DATES = ["2026-10-29", "2026-10-30", "2026-10-31", "2026-11-10"];
+  var ZIIP_AWAY_DATES = ["2026-10-29", "2026-10-30", "2026-10-31"];
   var ZIIP_FIVE_START = "2026-11-04";
   var ZIIP_FIVE = [
     { t: [["Glow Renewal", 10]] },
@@ -1063,6 +1063,11 @@ Notes: ${notes || "(none)"}`;
     const remainder = daysSince % 7;
     return weekNum * 2 + (remainder === 0 ? 0 : 1);
   }
+  function computePilatesRestartSession(calendarDate, shift = 0) {
+    const idx = PILATES_RESTART_INDEX + pilatesSlotNumber(calendarDate) - pilatesSlotNumber(PILATES_RESTART_DATE) - shift;
+    const len = PILATES_ROTATION_SERIES.length;
+    return PILATES_ROTATION_SERIES[(idx % len + len) % len];
+  }
   function computePilatesSession(dateStr, shift = 0) {
     const n = pilatesSlotNumber(dateStr);
     if (n === null) return PILATES_PRE_ROTATION_FALLBACK;
@@ -1136,12 +1141,23 @@ Notes: ${notes || "(none)"}`;
     ["The Breakaway | Get Fitter (50 min, medium \u2014 Threshold)", "The Fasted Ride | Get Fitter (40 min, easy \u2014 Endurance)", "Oxygen Needed | Get Fitter (40 min, easy \u2014 VO2 Max)"]
   ];
   var ROUVY_GET_FITTER_SLOTS = ROUVY_GET_FITTER.flat();
+  var ROUVY_BACK_TO_BASICS = [
+    ["Intro to Workouts | Back to Basics (24 min, easy)", "Endurance is Key | Back to Basics (37 min, easy \u2014 Endurance)", "FTP Ramp Test Lite (37 min)"],
+    ["Easy Recovery | Back to Basics (22 min, easy \u2014 Recovery)", "What are Training Zones | Back to Basics (34 min, easy \u2014 Threshold)", "LO/HI Cadence | Back to Basics (28 min, easy \u2014 Cadence)"]
+  ];
+  var ROUVY_RESTART_SLOTS = [...ROUVY_BACK_TO_BASICS.flat(), ...ROUVY_GET_FITTER_SLOTS, ...ROUVY_LEVEL_UP.flat()];
   function cyclingSlotOrdinal(dateStr, blockStartDate) {
     const w = Math.min(ROUVY_LEVEL_UP.length - 1, Math.max(0, Math.floor(daysBetween(blockStartDate, dateStr) / 7)));
     const dow = dayOfWeekISO(dateStr);
     return w * 3 + (dow === 1 ? 0 : dow === 3 ? 1 : 2);
   }
-  function computeCyclingBlockSession(dateStr, blockStartDate, shift = 0, allowRecovery = true) {
+  function computeCyclingBlockSession(dateStr, blockStartDate, shift = 0, allowRecovery = true, restarted = false) {
+    if (restarted) {
+      const w = Math.min(11, Math.max(0, Math.floor(daysBetween(blockStartDate, dateStr) / 7)));
+      const dow0 = dayOfWeekISO(dateStr);
+      const idx = w * 3 + (dow0 === 1 ? 0 : dow0 === 3 ? 1 : 2) - shift;
+      return ROUVY_RESTART_SLOTS[Math.min(ROUVY_RESTART_SLOTS.length - 1, Math.max(0, idx))];
+    }
     if (allowRecovery && dateStr === CYCLING_RECOVERY_DATE) return CYCLING_RECOVERY_SESSION;
     if (dateStr >= GET_FITTER_START) {
       const idx = cyclingSlotOrdinal(dateStr, blockStartDate) - cyclingSlotOrdinal(GET_FITTER_START, blockStartDate) - shift;
@@ -1153,7 +1169,7 @@ Notes: ${notes || "(none)"}`;
     const slotIndex = dow === 1 ? 0 : dow === 3 ? 1 : 2;
     return ROUVY_SLOTS[Math.max(0, weekNum * 3 + slotIndex - shift)];
   }
-  var IRON_BLOCK2_FULLBODY_DAYS = [4, 9, 14, 19, 24, 29];
+  var IRON_BLOCK2_FULLBODY_DAYS = [4, 9, 14, 19, 24, 29, 4, 9, 14, 19, 24, 29];
   var IRON_BLOCK2_SLOTS = IRON_BLOCK2_FULLBODY_DAYS.flatMap((d) => [d, d]);
   function computeIronBlock2FullBody(dateStr, blockStartDate, shift = 0) {
     const daysSince = daysBetween(blockStartDate, dateStr);
@@ -1163,7 +1179,10 @@ Notes: ${notes || "(none)"}`;
     const dayData = IRON_DAYS[dayNum];
     return `Iron Series Day ${dayNum} \u2014 ${dayData ? dayData.title : "Full Body"} (30 min)`;
   }
-  var BLOCK_WEEKS = [6, 6, 9, 6];
+  var BLOCK_WEEKS = [6, 12, 9, 6];
+  var FITNESS_RESTART_DATE = "2026-11-09";
+  var PILATES_RESTART_DATE = "2026-11-12";
+  var PILATES_RESTART_INDEX = 10;
   var PAUSED_SESSION = "Paused \u2014 on holiday";
   var LONG_PAUSE_DAYS = 14;
   function sortedFitnessPauses(fs) {
@@ -1194,6 +1213,10 @@ Notes: ${notes || "(none)"}`;
       seg++;
       pilatesBack = p.resume.pilatesBack || 0;
     }
+    if (dateStr >= FITNESS_RESTART_DATE && seg === 0 && !paused) {
+      const block2Start = addDaysISO(fs.startDate, 7 * BLOCK_WEEKS[0]);
+      return { eff: addDaysISO(dateStr, -daysBetween(block2Start, FITNESS_RESTART_DATE)), paused: false, seg: 1, segStart: block2Start, pilatesBack: 0, holdPending: false };
+    }
     return { eff: offset ? addDaysISO(dateStr, -offset) : dateStr, paused, seg, segStart, pilatesBack, holdPending: false };
   }
   function fitnessPauseFor(dateStr, fs) {
@@ -1218,7 +1241,7 @@ Notes: ${notes || "(none)"}`;
     }
     return { weekNum, blockIdx, dayInBlock: daysSince % 7, block: BLOCKS[blockIdx] };
   }
-  var BUILT_IN_FITNESS_PUSHES = ["2026-10-14", "2026-10-29", "2026-10-30", "2026-10-31", "2026-11-10"];
+  var BUILT_IN_FITNESS_PUSHES = ["2026-10-14", "2026-10-29", "2026-10-30", "2026-10-31"];
   function fitnessTrackSlot(calendarDate, fs) {
     const { eff: dateStr, paused, seg, segStart, pilatesBack } = fitnessEffectiveDate(calendarDate, fs);
     if (paused) return null;
@@ -1233,11 +1256,11 @@ Notes: ${notes || "(none)"}`;
     const cyclingStart = addDaysISO(fs.startDate, BLOCK_WEEKS[0] * 7);
     const runningStart = addDaysISO(fs.startDate, (BLOCK_WEEKS[0] + BLOCK_WEEKS[1]) * 7);
     if (ph === "__PILATES_ROTATION__") {
-      const n = pilatesSlotNumber(dateStr);
+      const n = pilatesSlotNumber(seg >= 1 && calendarDate >= FITNESS_RESTART_DATE ? calendarDate : dateStr);
       return n === null ? null : { track: ph, ordinal: n, label: "Pilates", seg, segStart, pilatesBack, eff: dateStr };
     }
     if (ph === "__IRON_BLOCK1__") return { track: ph, ordinal: weekIdx(fs.startDate, IRON_BLOCK1_SCHEDULE.length - 1) * 3 + mwf, label: "Iron Series", seg, segStart, eff: dateStr };
-    if (ph === "__CYCLING_BLOCK2__") return { track: ph, ordinal: weekIdx(cyclingStart, ROUVY_LEVEL_UP.length - 1) * 3 + mwf, label: "cycling", seg, segStart, eff: dateStr };
+    if (ph === "__CYCLING_BLOCK2__") return { track: ph, ordinal: weekIdx(cyclingStart, 11) * 3 + mwf, label: "cycling", seg, segStart, eff: dateStr };
     if (ph === "__IRON_BLOCK2_FULLBODY__") return { track: ph, ordinal: weekIdx(cyclingStart, IRON_BLOCK2_FULLBODY_DAYS.length - 1) * 2 + (dow === 2 ? 0 : 1), label: "Iron Series", seg, segStart, eff: dateStr };
     if (ph === "__C25K_ROTATION__") return { track: ph, ordinal: Math.max(0, Math.floor(daysBetween(runningStart, dateStr) / 7)) * 3 + mwf, label: "running", seg, segStart, eff: dateStr };
     return null;
@@ -1249,7 +1272,7 @@ Notes: ${notes || "(none)"}`;
     all.forEach((d) => {
       const s = fitnessTrackSlot(d, fs);
       if (!s || s.track !== slot.track) return;
-      if (s.track === "__CYCLING_BLOCK2__" && s.eff < GET_FITTER_START && slot.eff >= GET_FITTER_START) return;
+      if (s.track === "__CYCLING_BLOCK2__" && s.seg === 0 && slot.seg === 0 && s.eff < GET_FITTER_START && slot.eff >= GET_FITTER_START) return;
       if (s.seg === slot.seg ? s.ordinal < slot.ordinal : s.seg < slot.seg && s.eff < slot.segStart) shift++;
     });
     if (slot.pilatesBack) shift += slot.pilatesBack;
@@ -1273,7 +1296,7 @@ Notes: ${notes || "(none)"}`;
     if (paused) {
       scheduledSession = PAUSED_SESSION;
     } else if (scheduledSession === "__PILATES_ROTATION__") {
-      scheduledSession = computePilatesSession(dateStr, shift);
+      scheduledSession = seg >= 1 && calendarDate >= FITNESS_RESTART_DATE ? computePilatesRestartSession(calendarDate, shift) : computePilatesSession(dateStr, shift);
     } else if (scheduledSession === "__C25K_ROTATION__") {
       const runningBlockStartDate = addDaysISO(fitnessSettings.startDate, (BLOCK_WEEKS[0] + BLOCK_WEEKS[1]) * 7);
       scheduledSession = computeC25KSession(dateStr, runningBlockStartDate, shift);
@@ -1281,7 +1304,7 @@ Notes: ${notes || "(none)"}`;
       scheduledSession = computeIronBlock1Session(dateStr, fitnessSettings.startDate, shift);
     } else if (scheduledSession === "__CYCLING_BLOCK2__") {
       const cyclingBlockStartDate = addDaysISO(fitnessSettings.startDate, BLOCK_WEEKS[0] * 7);
-      scheduledSession = computeCyclingBlockSession(dateStr, cyclingBlockStartDate, shift, seg === 0);
+      scheduledSession = computeCyclingBlockSession(dateStr, cyclingBlockStartDate, shift, seg === 0, seg >= 1 && calendarDate >= FITNESS_RESTART_DATE);
     } else if (scheduledSession === "__IRON_BLOCK2_FULLBODY__") {
       const cyclingBlockStartDate = addDaysISO(fitnessSettings.startDate, BLOCK_WEEKS[0] * 7);
       scheduledSession = computeIronBlock2FullBody(dateStr, cyclingBlockStartDate, shift);
@@ -1548,7 +1571,7 @@ Notes: ${notes || "(none)"}`;
       tx.onerror = () => reject(tx.error);
     }));
   }
-  var APP_VERSION = "24 (4 Nov 2026: five-day ZIIP cycle, 4 min facial on days with an appointment)";
+  var APP_VERSION = "25 (8 Nov 2026: cycling block restarted 9 Nov, 12 weeks: Back to Basics, Get Fitter, Level Up)";
   var CLEANING_GROUT_MONTHS = [2, 5, 8, 11];
   var CLEANING_NON_GROUT_MONTHS = [1, 3, 4, 6, 7, 9, 10, 12];
   var cleanNth = (dow, from, to, extra = {}) => ({ type: "nth", dow, from, to, ...extra });
@@ -3977,8 +4000,8 @@ Notes: ${notes || "(none)"}`;
     )), !doneToday && !skippedToday ? /* @__PURE__ */ React.createElement("div", { style: { marginTop: 10 } }, /* @__PURE__ */ React.createElement(Input, { placeholder: "Notes (how it felt overall)", value: note, onChange: (e) => setNote(e.target.value), style: { width: "100%", marginBottom: 8 } }), /* @__PURE__ */ React.createElement("div", { style: { display: "flex", gap: 8 } }, /* @__PURE__ */ React.createElement(Btn, { onClick: () => logToday("done") }, "Log done"), /* @__PURE__ */ React.createElement(Btn, { tone: "ghost", onClick: () => logToday("skipped") }, "Skip (come back later)"))) : doneToday ? /* @__PURE__ */ React.createElement("div", { style: { marginTop: 8, fontSize: 13, color: COLORS.green } }, "\u2713 Logged for ", logDate === today ? "today" : fmtDate(logDate)) : /* @__PURE__ */ React.createElement("div", { style: { marginTop: 8, fontSize: 13, color: COLORS.clay, display: "flex", alignItems: "center", gap: 10 } }, /* @__PURE__ */ React.createElement("span", null, "\u26A0 Skipped \u2014 on your list to revisit"), /* @__PURE__ */ React.createElement("button", { onClick: () => logToday("done"), style: { background: "none", border: "none", color: COLORS.green, cursor: "pointer", fontSize: 12.5, fontWeight: 600 } }, "mark done now"))), skippedSessions.length > 0 && /* @__PURE__ */ React.createElement(Card, { style: { borderColor: COLORS.gold, background: COLORS.claySoft } }, /* @__PURE__ */ React.createElement(SectionTitle, null, "Skipped \u2014 come back to these"), skippedSessions.map((l) => /* @__PURE__ */ React.createElement("div", { key: l.date, style: { display: "flex", alignItems: "center", gap: 8, padding: "7px 0", borderBottom: `1px solid ${COLORS.line}` } }, /* @__PURE__ */ React.createElement("div", { style: { flex: 1 } }, /* @__PURE__ */ React.createElement("div", { style: { fontSize: 11.5, color: COLORS.inkSoft } }, fmtDate(l.date)), /* @__PURE__ */ React.createElement("div", { style: { fontSize: 13.5, color: COLORS.ink } }, l.session), l.note && /* @__PURE__ */ React.createElement("div", { style: { fontSize: 11.5, color: COLORS.inkSoft, marginTop: 2 } }, l.note)), /* @__PURE__ */ React.createElement("button", { onClick: () => markSkippedDone(l.date), style: { background: "none", border: "none", color: COLORS.green, cursor: "pointer", fontSize: 12, fontWeight: 600 } }, "mark done"), /* @__PURE__ */ React.createElement("button", { onClick: () => dismissSkipped(l.date), style: { background: "none", border: "none", color: COLORS.danger, cursor: "pointer", fontSize: 12 } }, "dismiss")))), /* @__PURE__ */ React.createElement(Card, null, /* @__PURE__ */ React.createElement(SectionTitle, null, "Training blocks"), BLOCKS.map((b, bi) => {
       const open = openBlockOverview === bi;
       const isCurrent = bi === blockIdx;
-      return /* @__PURE__ */ React.createElement("div", { key: b.name, style: { borderBottom: `1px solid ${COLORS.line}`, padding: "8px 0" } }, /* @__PURE__ */ React.createElement(CollapseHeader, { collapsed: !open, onToggle: () => setOpenBlockOverview(open ? null : bi) }, /* @__PURE__ */ React.createElement("div", { style: { display: "flex", alignItems: "center", gap: 8, flex: 1 } }, /* @__PURE__ */ React.createElement("span", { style: { fontSize: 14, fontWeight: 700, color: isCurrent ? COLORS.green : COLORS.ink } }, b.name), isCurrent && /* @__PURE__ */ React.createElement(Pill, null, "current"), /* @__PURE__ */ React.createElement("span", { style: { fontSize: 11.5, color: COLORS.inkSoft, marginLeft: "auto" } }, b.weeks))), open && /* @__PURE__ */ React.createElement("div", { style: { marginTop: 8, paddingLeft: 18 } }, b.days.map((d, di) => /* @__PURE__ */ React.createElement("div", { key: di, style: { display: "flex", gap: 8, padding: "3px 0", fontSize: 13 } }, /* @__PURE__ */ React.createElement("span", { style: { width: 34, flexShrink: 0, color: COLORS.inkSoft, fontWeight: 600 } }, WEEKDAY_NAMES[di === 6 ? 0 : di + 1].slice(0, 3)), /* @__PURE__ */ React.createElement("span", { style: { color: COLORS.ink } }, d === "__PILATES_ROTATION__" ? "Pilates \u2014 Nell Hoess (Level 4/5/6 rotation)" : d === "__C25K_ROTATION__" ? "C25K progressive run + same-day stretch/yoga (see Couch to 5K plan \u2014 varies weekly)" : d === "__IRON_BLOCK1__" ? "Iron Series \u2014 Caroline Girvan (Mon/Wed/Fri, Days 1\u201330 over 6 weeks \u2014 see full plan)" : d === "__CYCLING_BLOCK2__" ? 'Cycling \u2014 ROUVY "Level Up" 6-week plan, then "Get Fitter" 4-week plan from 21 Oct (Mon/Wed/Fri \u2014 see full plan)' : d === "__IRON_BLOCK2_FULLBODY__" ? "Iron Series Full Body \u2014 same day each week, see full plan" : d))), b.days.includes("__C25K_ROTATION__") && /* @__PURE__ */ React.createElement("div", { style: { marginTop: 10, paddingTop: 8, borderTop: `1px solid ${COLORS.line}` } }, /* @__PURE__ */ React.createElement("button", { onClick: () => setShowC25KPlan(!showC25KPlan), style: { background: "none", border: "none", color: COLORS.green, fontSize: 12.5, fontWeight: 600, cursor: "pointer", padding: 0 } }, showC25KPlan ? "\u25BE" : "\u25B8", " View full Couch to 5K plan (9 weeks)"), showC25KPlan && /* @__PURE__ */ React.createElement("div", { style: { marginTop: 8 } }, C25K_PROGRAM.map((wk, wi) => /* @__PURE__ */ React.createElement("div", { key: wi, style: { marginBottom: 10, paddingBottom: 8, borderBottom: wi < C25K_PROGRAM.length - 1 ? `1px solid ${COLORS.line}` : "none" } }, /* @__PURE__ */ React.createElement("div", { style: { fontSize: 12.5, fontWeight: 700, color: COLORS.ink, marginBottom: 3 } }, "Week ", wi + 1), Array.isArray(wk) ? wk.map((dayText, di2) => /* @__PURE__ */ React.createElement("div", { key: di2, style: { fontSize: 12, color: COLORS.inkSoft, marginBottom: 2 } }, /* @__PURE__ */ React.createElement("b", { style: { color: COLORS.ink } }, ["Mon", "Wed", "Fri"][di2], ":"), " ", dayText, " ", /* @__PURE__ */ React.createElement("span", { style: { color: COLORS.clay } }, "+ ", RUN_DAY_FOLLOWUP[di2]))) : /* @__PURE__ */ React.createElement(React.Fragment, null, /* @__PURE__ */ React.createElement("div", { style: { fontSize: 12, color: COLORS.inkSoft, marginBottom: 2 } }, /* @__PURE__ */ React.createElement("b", { style: { color: COLORS.ink } }, "Mon:"), " ", wk, " ", /* @__PURE__ */ React.createElement("span", { style: { color: COLORS.clay } }, "+ ", RUN_DAY_FOLLOWUP[0])), /* @__PURE__ */ React.createElement("div", { style: { fontSize: 12, color: COLORS.inkSoft, marginBottom: 2 } }, /* @__PURE__ */ React.createElement("b", { style: { color: COLORS.ink } }, "Wed:"), " ", wk, " ", /* @__PURE__ */ React.createElement("span", { style: { color: COLORS.clay } }, "+ ", RUN_DAY_FOLLOWUP[1])), /* @__PURE__ */ React.createElement("div", { style: { fontSize: 12, color: COLORS.inkSoft, marginBottom: 2 } }, /* @__PURE__ */ React.createElement("b", { style: { color: COLORS.ink } }, "Fri:"), " ", wk, " ", /* @__PURE__ */ React.createElement("span", { style: { color: COLORS.clay } }, "+ ", RUN_DAY_FOLLOWUP[2])))))))));
-    })), /* @__PURE__ */ React.createElement(Card, null, /* @__PURE__ */ React.createElement(SectionTitle, null, "Swap two days"), /* @__PURE__ */ React.createElement("div", { style: { display: "flex", gap: 10, flexWrap: "wrap", alignItems: "flex-end", marginBottom: 6 } }, /* @__PURE__ */ React.createElement("div", null, /* @__PURE__ */ React.createElement("div", { style: { fontSize: 11, color: COLORS.inkSoft, marginBottom: 3 } }, "Date A"), /* @__PURE__ */ React.createElement(Input, { type: "date", value: swapDateA, onChange: (e) => setSwapDateA(e.target.value) }), /* @__PURE__ */ React.createElement("div", { style: { fontSize: 11.5, color: COLORS.inkSoft, marginTop: 3, maxWidth: 150 } }, sessionForDate(swapDateA))), /* @__PURE__ */ React.createElement("div", null, /* @__PURE__ */ React.createElement("div", { style: { fontSize: 11, color: COLORS.inkSoft, marginBottom: 3 } }, "Date B"), /* @__PURE__ */ React.createElement(Input, { type: "date", value: swapDateB, onChange: (e) => setSwapDateB(e.target.value) }), /* @__PURE__ */ React.createElement("div", { style: { fontSize: 11.5, color: COLORS.inkSoft, marginTop: 3, maxWidth: 150 } }, sessionForDate(swapDateB))), /* @__PURE__ */ React.createElement(Btn, { onClick: swapTwoDates }, "Swap")), /* @__PURE__ */ React.createElement("div", { style: { fontSize: 11, color: COLORS.inkSoft, marginTop: 16, marginBottom: 4 } }, "Or just change one day (no second date affected)"), /* @__PURE__ */ React.createElement("div", { style: { display: "flex", gap: 8, flexWrap: "wrap", alignItems: "flex-end" } }, /* @__PURE__ */ React.createElement(Input, { type: "date", value: singleDate, onChange: (e) => setSingleDate(e.target.value) }), /* @__PURE__ */ React.createElement(Select, { value: singleSessionChoice, onChange: (e) => setSingleSessionChoice(e.target.value), style: { minWidth: 200 } }, /* @__PURE__ */ React.createElement("option", { value: "" }, "\u2014 Reset to scheduled \u2014"), BLOCKS.map((b) => /* @__PURE__ */ React.createElement("optgroup", { key: b.name, label: b.name }, b.days.flatMap((d) => d === "__PILATES_ROTATION__" ? PILATES_ALL_OPTIONS : d === "__C25K_ROTATION__" ? C25K_PROGRAM.flatMap((w) => Array.isArray(w) ? w : [w]) : d === "__IRON_BLOCK1__" || d === "__IRON_BLOCK2_FULLBODY__" ? Object.keys(IRON_DAYS).map((n) => `Iron Series Day ${n} \u2014 ${IRON_DAYS[n].title} (30 min)`) : d === "__CYCLING_BLOCK2__" ? [...ROUVY_LEVEL_UP.flat(), ...ROUVY_GET_FITTER_SLOTS] : [d]).map((d) => /* @__PURE__ */ React.createElement("option", { key: d, value: d }, d))))), /* @__PURE__ */ React.createElement(Btn, { tone: "ghost", onClick: applySingleOverride }, "Save")), overrideDates.length > 0 && /* @__PURE__ */ React.createElement("div", { style: { marginTop: 16, paddingTop: 12, borderTop: `1px solid ${COLORS.line}` } }, /* @__PURE__ */ React.createElement("div", { style: { fontSize: 11, color: COLORS.inkSoft, marginBottom: 6 } }, "Active swaps / overrides"), overrideDates.map((d) => /* @__PURE__ */ React.createElement("div", { key: d, style: { display: "flex", alignItems: "center", gap: 8, padding: "6px 0", borderBottom: `1px solid ${COLORS.line}` } }, /* @__PURE__ */ React.createElement("div", { style: { flex: 1 } }, /* @__PURE__ */ React.createElement("div", { style: { fontSize: 11.5, color: COLORS.inkSoft } }, fmtDate(d)), /* @__PURE__ */ React.createElement("div", { style: { fontSize: 13, color: COLORS.ink } }, fitnessOverrides[d])), /* @__PURE__ */ React.createElement("button", { onClick: () => clearOverride(d), style: { background: "none", border: "none", color: COLORS.danger, cursor: "pointer", fontSize: 12 } }, "reset"))))), /* @__PURE__ */ React.createElement(Card, null, /* @__PURE__ */ React.createElement(SectionTitle, { sub: "Going away? Add the dates. Up to 14 days is a holiday: those days are skipped (not counted as missed, streak untouched) and the first day back is whatever the schedule says for that day. Longer than 14 days is a total pause: the programme stays frozen until you tell it how to restart \u2014 where you left off, a few weeks back, or the start of a block." }, "Pause for a holiday"), /* @__PURE__ */ React.createElement("div", { style: { display: "flex", alignItems: "center", gap: 8, flexWrap: "wrap", marginBottom: 8 } }, /* @__PURE__ */ React.createElement("span", { style: { fontSize: 11.5, color: COLORS.inkSoft } }, "From"), /* @__PURE__ */ React.createElement(Input, { type: "date", value: pauseFrom, onChange: (e) => setPauseFrom(e.target.value), style: { width: 150 } }), /* @__PURE__ */ React.createElement("span", { style: { fontSize: 11.5, color: COLORS.inkSoft } }, "to (last day away)"), /* @__PURE__ */ React.createElement(Input, { type: "date", value: pauseTo, onChange: (e) => setPauseTo(e.target.value), style: { width: 150 } }), /* @__PURE__ */ React.createElement(Btn, { onClick: addPause, disabled: !pauseFrom || !pauseTo || pauseTo < pauseFrom }, "Add pause")), pauseError && /* @__PURE__ */ React.createElement("div", { style: { fontSize: 12.5, color: COLORS.danger, marginBottom: 6 } }, pauseError), sortedFitnessPauses(settings).map((p) => {
+      return /* @__PURE__ */ React.createElement("div", { key: b.name, style: { borderBottom: `1px solid ${COLORS.line}`, padding: "8px 0" } }, /* @__PURE__ */ React.createElement(CollapseHeader, { collapsed: !open, onToggle: () => setOpenBlockOverview(open ? null : bi) }, /* @__PURE__ */ React.createElement("div", { style: { display: "flex", alignItems: "center", gap: 8, flex: 1 } }, /* @__PURE__ */ React.createElement("span", { style: { fontSize: 14, fontWeight: 700, color: isCurrent ? COLORS.green : COLORS.ink } }, b.name), isCurrent && /* @__PURE__ */ React.createElement(Pill, null, "current"), /* @__PURE__ */ React.createElement("span", { style: { fontSize: 11.5, color: COLORS.inkSoft, marginLeft: "auto" } }, b.weeks))), open && /* @__PURE__ */ React.createElement("div", { style: { marginTop: 8, paddingLeft: 18 } }, b.days.map((d, di) => /* @__PURE__ */ React.createElement("div", { key: di, style: { display: "flex", gap: 8, padding: "3px 0", fontSize: 13 } }, /* @__PURE__ */ React.createElement("span", { style: { width: 34, flexShrink: 0, color: COLORS.inkSoft, fontWeight: 600 } }, WEEKDAY_NAMES[di === 6 ? 0 : di + 1].slice(0, 3)), /* @__PURE__ */ React.createElement("span", { style: { color: COLORS.ink } }, d === "__PILATES_ROTATION__" ? "Pilates \u2014 Nell Hoess (Level 4/5/6 rotation)" : d === "__C25K_ROTATION__" ? "C25K progressive run + same-day stretch/yoga (see Couch to 5K plan \u2014 varies weekly)" : d === "__IRON_BLOCK1__" ? "Iron Series \u2014 Caroline Girvan (Mon/Wed/Fri, Days 1\u201330 over 6 weeks \u2014 see full plan)" : d === "__CYCLING_BLOCK2__" ? 'Cycling \u2014 ROUVY 12 weeks from 9 Nov: "Back to Basics" (2 wks), "Get Fitter" (4 wks), "Level Up" (6 wks) (Mon/Wed/Fri \u2014 see full plan)' : d === "__IRON_BLOCK2_FULLBODY__" ? "Iron Series Full Body \u2014 same day each week, see full plan" : d))), b.days.includes("__C25K_ROTATION__") && /* @__PURE__ */ React.createElement("div", { style: { marginTop: 10, paddingTop: 8, borderTop: `1px solid ${COLORS.line}` } }, /* @__PURE__ */ React.createElement("button", { onClick: () => setShowC25KPlan(!showC25KPlan), style: { background: "none", border: "none", color: COLORS.green, fontSize: 12.5, fontWeight: 600, cursor: "pointer", padding: 0 } }, showC25KPlan ? "\u25BE" : "\u25B8", " View full Couch to 5K plan (9 weeks)"), showC25KPlan && /* @__PURE__ */ React.createElement("div", { style: { marginTop: 8 } }, C25K_PROGRAM.map((wk, wi) => /* @__PURE__ */ React.createElement("div", { key: wi, style: { marginBottom: 10, paddingBottom: 8, borderBottom: wi < C25K_PROGRAM.length - 1 ? `1px solid ${COLORS.line}` : "none" } }, /* @__PURE__ */ React.createElement("div", { style: { fontSize: 12.5, fontWeight: 700, color: COLORS.ink, marginBottom: 3 } }, "Week ", wi + 1), Array.isArray(wk) ? wk.map((dayText, di2) => /* @__PURE__ */ React.createElement("div", { key: di2, style: { fontSize: 12, color: COLORS.inkSoft, marginBottom: 2 } }, /* @__PURE__ */ React.createElement("b", { style: { color: COLORS.ink } }, ["Mon", "Wed", "Fri"][di2], ":"), " ", dayText, " ", /* @__PURE__ */ React.createElement("span", { style: { color: COLORS.clay } }, "+ ", RUN_DAY_FOLLOWUP[di2]))) : /* @__PURE__ */ React.createElement(React.Fragment, null, /* @__PURE__ */ React.createElement("div", { style: { fontSize: 12, color: COLORS.inkSoft, marginBottom: 2 } }, /* @__PURE__ */ React.createElement("b", { style: { color: COLORS.ink } }, "Mon:"), " ", wk, " ", /* @__PURE__ */ React.createElement("span", { style: { color: COLORS.clay } }, "+ ", RUN_DAY_FOLLOWUP[0])), /* @__PURE__ */ React.createElement("div", { style: { fontSize: 12, color: COLORS.inkSoft, marginBottom: 2 } }, /* @__PURE__ */ React.createElement("b", { style: { color: COLORS.ink } }, "Wed:"), " ", wk, " ", /* @__PURE__ */ React.createElement("span", { style: { color: COLORS.clay } }, "+ ", RUN_DAY_FOLLOWUP[1])), /* @__PURE__ */ React.createElement("div", { style: { fontSize: 12, color: COLORS.inkSoft, marginBottom: 2 } }, /* @__PURE__ */ React.createElement("b", { style: { color: COLORS.ink } }, "Fri:"), " ", wk, " ", /* @__PURE__ */ React.createElement("span", { style: { color: COLORS.clay } }, "+ ", RUN_DAY_FOLLOWUP[2])))))))));
+    })), /* @__PURE__ */ React.createElement(Card, null, /* @__PURE__ */ React.createElement(SectionTitle, null, "Swap two days"), /* @__PURE__ */ React.createElement("div", { style: { display: "flex", gap: 10, flexWrap: "wrap", alignItems: "flex-end", marginBottom: 6 } }, /* @__PURE__ */ React.createElement("div", null, /* @__PURE__ */ React.createElement("div", { style: { fontSize: 11, color: COLORS.inkSoft, marginBottom: 3 } }, "Date A"), /* @__PURE__ */ React.createElement(Input, { type: "date", value: swapDateA, onChange: (e) => setSwapDateA(e.target.value) }), /* @__PURE__ */ React.createElement("div", { style: { fontSize: 11.5, color: COLORS.inkSoft, marginTop: 3, maxWidth: 150 } }, sessionForDate(swapDateA))), /* @__PURE__ */ React.createElement("div", null, /* @__PURE__ */ React.createElement("div", { style: { fontSize: 11, color: COLORS.inkSoft, marginBottom: 3 } }, "Date B"), /* @__PURE__ */ React.createElement(Input, { type: "date", value: swapDateB, onChange: (e) => setSwapDateB(e.target.value) }), /* @__PURE__ */ React.createElement("div", { style: { fontSize: 11.5, color: COLORS.inkSoft, marginTop: 3, maxWidth: 150 } }, sessionForDate(swapDateB))), /* @__PURE__ */ React.createElement(Btn, { onClick: swapTwoDates }, "Swap")), /* @__PURE__ */ React.createElement("div", { style: { fontSize: 11, color: COLORS.inkSoft, marginTop: 16, marginBottom: 4 } }, "Or just change one day (no second date affected)"), /* @__PURE__ */ React.createElement("div", { style: { display: "flex", gap: 8, flexWrap: "wrap", alignItems: "flex-end" } }, /* @__PURE__ */ React.createElement(Input, { type: "date", value: singleDate, onChange: (e) => setSingleDate(e.target.value) }), /* @__PURE__ */ React.createElement(Select, { value: singleSessionChoice, onChange: (e) => setSingleSessionChoice(e.target.value), style: { minWidth: 200 } }, /* @__PURE__ */ React.createElement("option", { value: "" }, "\u2014 Reset to scheduled \u2014"), BLOCKS.map((b) => /* @__PURE__ */ React.createElement("optgroup", { key: b.name, label: b.name }, b.days.flatMap((d) => d === "__PILATES_ROTATION__" ? PILATES_ALL_OPTIONS : d === "__C25K_ROTATION__" ? C25K_PROGRAM.flatMap((w) => Array.isArray(w) ? w : [w]) : d === "__IRON_BLOCK1__" || d === "__IRON_BLOCK2_FULLBODY__" ? Object.keys(IRON_DAYS).map((n) => `Iron Series Day ${n} \u2014 ${IRON_DAYS[n].title} (30 min)`) : d === "__CYCLING_BLOCK2__" ? [...ROUVY_BACK_TO_BASICS.flat(), ...ROUVY_GET_FITTER_SLOTS, ...ROUVY_LEVEL_UP.flat()] : [d]).map((d) => /* @__PURE__ */ React.createElement("option", { key: d, value: d }, d))))), /* @__PURE__ */ React.createElement(Btn, { tone: "ghost", onClick: applySingleOverride }, "Save")), overrideDates.length > 0 && /* @__PURE__ */ React.createElement("div", { style: { marginTop: 16, paddingTop: 12, borderTop: `1px solid ${COLORS.line}` } }, /* @__PURE__ */ React.createElement("div", { style: { fontSize: 11, color: COLORS.inkSoft, marginBottom: 6 } }, "Active swaps / overrides"), overrideDates.map((d) => /* @__PURE__ */ React.createElement("div", { key: d, style: { display: "flex", alignItems: "center", gap: 8, padding: "6px 0", borderBottom: `1px solid ${COLORS.line}` } }, /* @__PURE__ */ React.createElement("div", { style: { flex: 1 } }, /* @__PURE__ */ React.createElement("div", { style: { fontSize: 11.5, color: COLORS.inkSoft } }, fmtDate(d)), /* @__PURE__ */ React.createElement("div", { style: { fontSize: 13, color: COLORS.ink } }, fitnessOverrides[d])), /* @__PURE__ */ React.createElement("button", { onClick: () => clearOverride(d), style: { background: "none", border: "none", color: COLORS.danger, cursor: "pointer", fontSize: 12 } }, "reset"))))), /* @__PURE__ */ React.createElement(Card, null, /* @__PURE__ */ React.createElement(SectionTitle, { sub: "Going away? Add the dates. Up to 14 days is a holiday: those days are skipped (not counted as missed, streak untouched) and the first day back is whatever the schedule says for that day. Longer than 14 days is a total pause: the programme stays frozen until you tell it how to restart \u2014 where you left off, a few weeks back, or the start of a block." }, "Pause for a holiday"), /* @__PURE__ */ React.createElement("div", { style: { display: "flex", alignItems: "center", gap: 8, flexWrap: "wrap", marginBottom: 8 } }, /* @__PURE__ */ React.createElement("span", { style: { fontSize: 11.5, color: COLORS.inkSoft } }, "From"), /* @__PURE__ */ React.createElement(Input, { type: "date", value: pauseFrom, onChange: (e) => setPauseFrom(e.target.value), style: { width: 150 } }), /* @__PURE__ */ React.createElement("span", { style: { fontSize: 11.5, color: COLORS.inkSoft } }, "to (last day away)"), /* @__PURE__ */ React.createElement(Input, { type: "date", value: pauseTo, onChange: (e) => setPauseTo(e.target.value), style: { width: 150 } }), /* @__PURE__ */ React.createElement(Btn, { onClick: addPause, disabled: !pauseFrom || !pauseTo || pauseTo < pauseFrom }, "Add pause")), pauseError && /* @__PURE__ */ React.createElement("div", { style: { fontSize: 12.5, color: COLORS.danger, marginBottom: 6 } }, pauseError), sortedFitnessPauses(settings).map((p) => {
       const long = fitnessPauseIsLong(p);
       const days = daysBetween(p.from, p.to) + 1;
       return /* @__PURE__ */ React.createElement("div", { key: p.from + p.to, style: { padding: "8px 0", borderBottom: `1px solid ${COLORS.line}` } }, /* @__PURE__ */ React.createElement("div", { style: { display: "flex", alignItems: "center", gap: 8 } }, /* @__PURE__ */ React.createElement("div", { style: { flex: 1 } }, /* @__PURE__ */ React.createElement("div", { style: { fontSize: 13, color: COLORS.ink } }, fmtDate(p.from), " \u2013 ", fmtDate(p.to), " (", days, " days) \xB7 ", long ? "total pause" : "holiday"), !long && /* @__PURE__ */ React.createElement("div", { style: { fontSize: 11.5, color: COLORS.inkSoft } }, "Back on ", fmtDate(addDaysISO(p.to, 1)), ": ", computeFitnessForDate(addDaysISO(p.to, 1), settings, fitnessOverrides).regularSession), long && p.resume && /* @__PURE__ */ React.createElement("div", { style: { fontSize: 11.5, color: COLORS.inkSoft } }, "Restarted ", fmtDate(p.resume.date), ": ", p.resume.label, p.resume.pilatesBack ? ` \xB7 Pilates back ${p.resume.pilatesBack} extra` : "")), long && p.resume && /* @__PURE__ */ React.createElement("button", { onClick: () => undoRestart(p), style: { background: "none", border: "none", color: COLORS.clay, cursor: "pointer", fontSize: 12 } }, "undo restart"), /* @__PURE__ */ React.createElement("button", { onClick: () => removePause(p), style: { background: "none", border: "none", color: COLORS.danger, cursor: "pointer", fontSize: 12 } }, "remove")), long && !p.resume && /* @__PURE__ */ React.createElement(PauseRestartForm, { pause: p, settings, setSettings, today, logChange }));
