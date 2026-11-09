@@ -1348,6 +1348,24 @@ Notes: ${notes || "(none)"}`;
     const day = String(d.getDate()).padStart(2, "0");
     return `${y}-${m}-${day}`;
   }
+  function parseRenphoDate(raw) {
+    if (raw === void 0 || raw === null) return null;
+    const t = String(raw).replace(/^\uFEFF/, "").replace(/^"|"$/g, "").trim();
+    let y, mo, d, m;
+    if (m = t.match(/^(\d{4})[./-](\d{1,2})[./-](\d{1,2})(?:[ T].*)?$/)) {
+      y = +m[1];
+      mo = +m[2];
+      d = +m[3];
+    } else if (m = t.match(/^(\d{1,2})[./-](\d{1,2})[./-](\d{4})(?:[ T].*)?$/)) {
+      d = +m[1];
+      mo = +m[2];
+      y = +m[3];
+    } else return null;
+    if (mo < 1 || mo > 12 || d < 1 || d > 31) return null;
+    const dt = new Date(Date.UTC(y, mo - 1, d));
+    if (dt.getUTCFullYear() !== y || dt.getUTCMonth() !== mo - 1 || dt.getUTCDate() !== d) return null;
+    return `${y}-${String(mo).padStart(2, "0")}-${String(d).padStart(2, "0")}`;
+  }
   function addDaysISO(iso, n) {
     const [y, m, d] = iso.split("-").map(Number);
     const dt = new Date(Date.UTC(y, m - 1, d));
@@ -1571,7 +1589,7 @@ Notes: ${notes || "(none)"}`;
       tx.onerror = () => reject(tx.error);
     }));
   }
-  var APP_VERSION = "25 (8 Nov 2026: cycling block restarted 9 Nov, 12 weeks: Back to Basics, Get Fitter, Level Up)";
+  var APP_VERSION = "26 (9 Nov 2026: RENPHO CSV import accepts the new YYYY.MM.DD dates)";
   var CLEANING_GROUT_MONTHS = [2, 5, 8, 11];
   var CLEANING_NON_GROUT_MONTHS = [1, 3, 4, 6, 7, 9, 10, 12];
   var cleanNth = (dow, from, to, extra = {}) => ({ type: "nth", dow, from, to, ...extra });
@@ -5722,7 +5740,7 @@ ${body}}`;
       { header: "Metabolic Age", key: "metabolicAge" },
       { header: "WHR (Waist-to-Hip Ratio)", key: "whr" }
     ];
-    const parseCsvLine = (line) => line.split(",").map((c) => c.trim());
+    const parseCsvLine = (line) => line.split(",").map((c) => c.replace(/^\uFEFF/, "").replace(/^"|"$/g, "").trim());
     const importRenphoCsv = async (file) => {
       setRenphoImporting(true);
       setRenphoError("");
@@ -5742,10 +5760,8 @@ ${body}}`;
         const byId = {};
         for (let i = 1; i < lines.length; i++) {
           const cols = parseCsvLine(lines[i]);
-          const rawDate = cols[dateIdx];
-          const m = rawDate && rawDate.match(/^(\d{1,2})\/(\d{1,2})\/(\d{4})$/);
-          if (!m) continue;
-          const isoDate = `${m[3]}-${m[2].padStart(2, "0")}-${m[1].padStart(2, "0")}`;
+          const isoDate = parseRenphoDate(cols[dateIdx]);
+          if (!isoDate) continue;
           const time = timeIdx !== -1 ? cols[timeIdx] : "";
           const entry = { date: isoDate };
           for (const c of RENPHO_CSV_COLUMNS) {
