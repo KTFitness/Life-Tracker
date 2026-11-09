@@ -1589,7 +1589,7 @@ Notes: ${notes || "(none)"}`;
       tx.onerror = () => reject(tx.error);
     }));
   }
-  var APP_VERSION = "27 (9 Nov 2026: dashed trend lines on all weight and body composition graphs)";
+  var APP_VERSION = "28 (9 Nov 2026: trend lines now black so they stand out)";
   var CLEANING_GROUT_MONTHS = [2, 5, 8, 11];
   var CLEANING_NON_GROUT_MONTHS = [1, 3, 4, 6, 7, 9, 10, 12];
   var cleanNth = (dow, from, to, extra = {}) => ({ type: "nth", dow, from, to, ...extra });
@@ -3659,7 +3659,7 @@ Notes: ${notes || "(none)"}`;
     }
     return out;
   }
-  var trendLineEl = (data, key, color, label) => data.some((d) => d["t_" + key] !== void 0) ? /* @__PURE__ */ React.createElement(Line, { key: "t_" + key, type: "linear", dataKey: "t_" + key, stroke: color, strokeWidth: 1.5, strokeDasharray: "6 4", dot: false, connectNulls: true, name: label + " trend" }) : null;
+  var trendLineEl = (data, key, color, label) => data.some((d) => d["t_" + key] !== void 0) ? /* @__PURE__ */ React.createElement(Line, { key: "t_" + key, type: "linear", dataKey: "t_" + key, stroke: "#000000", strokeWidth: 2, strokeDasharray: color === COLORS.slate ? "2 4" : "7 4", dot: false, connectNulls: true, name: label + " trend" }) : null;
   function trendChange(rows, field) {
     const withValue = rows.filter((r) => r[field] !== void 0 && r[field] !== null).slice().sort((a, b) => a.date.localeCompare(b.date));
     if (withValue.length < 2) return null;
